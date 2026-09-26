@@ -17,6 +17,54 @@ import {
   SettingService,
 } from '../services/setting.service';
 
+// ============================================================
+// Rejection prompt data
+// ============================================================
+
+interface RejectionPromptData {
+  listingId: string;
+  controlMessageId: number;
+}
+
+// ============================================================
+// Extract rejection prompt data
+// ============================================================
+
+function parseRejectionPrompt(
+  text: string
+): RejectionPromptData | null {
+  /*
+   * Expected format:
+   *
+   * ❌ ပယ်ဖျက်မည်
+   *
+   * ID: <listing-id>
+   *
+   * ပယ်ဖျက်ရသည့် အကြောင်းပြချက်ကို ရေးပေးပါ -
+   */
+
+  const match =
+    text.match(
+      /ID:\s*(?:<code>)?([^<\s]+)(?:<\/code>)?/
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    listingId:
+      match[1].trim(),
+
+    controlMessageId:
+      0,
+  };
+}
+
+// ============================================================
+// Admin handlers
+// ============================================================
+
 export function registerAdminHandlers(
   bot: Telegraf<MyContext>,
   listingService: ListingService,
@@ -200,16 +248,8 @@ export function registerAdminHandlers(
         return;
       }
 
-      /*
-       * The listing ID is stored directly in the
-       * rejection prompt.
-       *
-       * We also reply to the original control message
-       * so the admin can clearly see which listing they
-       * are responding to.
-       */
-
       try {
+
         await ctx.reply(
           `❌ <b>ပယ်ဖျက်မည်</b>\n\n` +
           `ID: <code>${listingId}</code>\n\n` +
@@ -225,6 +265,7 @@ export function registerAdminHandlers(
             },
           }
         );
+
       } catch (error) {
 
         console.error(
@@ -243,13 +284,9 @@ export function registerAdminHandlers(
     'text',
     async (ctx, next) => {
 
-      /*
-       * Only process rejection replies from:
-       *
-       * 1. An admin
-       * 2. The admin chat
-       * 3. A message that replies to another message
-       */
+      // ------------------------------------------------------
+      // Only admins in the admin chat
+      // ------------------------------------------------------
 
       if (
         !isAdmin(ctx) ||
@@ -273,42 +310,34 @@ export function registerAdminHandlers(
         return next();
       }
 
-      /*
-       * Telegram's reply_to_message can contain either
-       * text or a caption depending on the message type.
-       *
-       * Our rejection prompt is always a text message,
-       * so we only need the text field here.
-       */
+      // ------------------------------------------------------
+      // Get text from the message being replied to
+      // ------------------------------------------------------
 
       const replyText =
         'text' in repliedMessage
           ? repliedMessage.text
           : '';
 
-      /*
-       * Expected rejection prompt:
-       *
-       * ❌ ပယ်ဖျက်မည်
-       *
-       * ID: <listing-id>
-       *
-       * ...
-       *
-       * We only need to extract the ID.
-       */
+      if (!replyText) {
+        return next();
+      }
 
-      const match =
-        replyText.match(
-          /ID:\s*(?:<code>)?([^<\s]+)(?:<\/code>)?/
+      // ------------------------------------------------------
+      // Check whether this is our rejection prompt
+      // ------------------------------------------------------
+
+      const promptData =
+        parseRejectionPrompt(
+          replyText
         );
 
-      if (!match) {
+      if (!promptData) {
         return next();
       }
 
       const listingId =
-        match[1].trim();
+        promptData.listingId;
 
       const reason =
         ctx.message.text.trim();
@@ -321,11 +350,12 @@ export function registerAdminHandlers(
         return;
       }
 
-      // ======================================================
+      // ------------------------------------------------------
       // Reject listing
-      // ======================================================
+      // ------------------------------------------------------
 
       try {
+
         const result =
           await listingService
             .rejectListing(
@@ -334,48 +364,44 @@ export function registerAdminHandlers(
             );
 
         /*
-         * The admin's rejection reason message is itself
-         * a reply to the rejection prompt.
+         * The rejection prompt was created as a reply
+         * to the original admin control message.
          *
-         * We already know the original control message is
-         * the message that the rejection prompt replied to.
-         *
-         * Instead of using an unsafe TypeScript cast,
-         * Telegram's reply structure is checked safely.
+         * Telegraf's TypeScript definitions can narrow
+         * reply_to_message differently depending on the
+         * message union type, so we use a small, local
+         * structural check here.
          */
 
-        const rejectionPrompt =
-          repliedMessage;
-
-        if (
-          !('reply_to_message' in rejectionPrompt)
-        ) {
-          console.error(
-            '❌ Rejection prompt does not contain the original control message.'
-          );
-
-          return;
-        }
-
-        const originalMessage =
-          rejectionPrompt.reply_to_message;
-
-        if (!originalMessage) {
-          console.error(
-            '❌ Could not find original control message for rejection.'
-          );
-
-          return;
-        }
+        const rejectionPromptWithReply =
+          repliedMessage as {
+            message_id: number;
+            reply_to_message?: {
+              message_id: number;
+            };
+          };
 
         const controlMessageId =
-          originalMessage.message_id;
+          rejectionPromptWithReply
+            .reply_to_message
+            ?.message_id;
 
-        // ====================================================
-        // Update admin control message
-        // ====================================================
+        if (
+          controlMessageId === undefined
+        ) {
+          console.error(
+            '❌ Could not find original control message ID for rejection.'
+          );
+
+          return;
+        }
+
+        // ----------------------------------------------------
+        // Update original admin control message
+        // ----------------------------------------------------
 
         try {
+
           await ctx.telegram.editMessageText(
             chatId,
             controlMessageId,
@@ -385,6 +411,7 @@ export function registerAdminHandlers(
               parse_mode: 'HTML',
             }
           );
+
         } catch (error) {
 
           console.error(
