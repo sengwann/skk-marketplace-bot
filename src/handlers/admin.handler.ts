@@ -17,54 +17,6 @@ import {
   SettingService,
 } from '../services/setting.service';
 
-// ============================================================
-// Rejection prompt data
-// ============================================================
-
-interface RejectionPromptData {
-  listingId: string;
-  controlMessageId: number;
-}
-
-// ============================================================
-// Extract rejection prompt data
-// ============================================================
-
-function parseRejectionPrompt(
-  text: string
-): RejectionPromptData | null {
-  /*
-   * Expected format:
-   *
-   * ❌ ပယ်ဖျက်မည်
-   *
-   * ID: <listing-id>
-   *
-   * ပယ်ဖျက်ရသည့် အကြောင်းပြချက်ကို ရေးပေးပါ -
-   */
-
-  const match =
-    text.match(
-      /ID:\s*(?:<code>)?([^<\s]+)(?:<\/code>)?/
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  return {
-    listingId:
-      match[1].trim(),
-
-    controlMessageId:
-      0,
-  };
-}
-
-// ============================================================
-// Admin handlers
-// ============================================================
-
 export function registerAdminHandlers(
   bot: Telegraf<MyContext>,
   listingService: ListingService,
@@ -112,7 +64,9 @@ export function registerAdminHandlers(
       await ctx.reply(
         '✅ စည်းကမ်းချက်များကို အောင်မြင်စွာ ပြောင်းလဲပြီးပါပြီ။'
       );
+
     } catch (error) {
+
       console.error(
         '❌ Failed to update rules:',
         error
@@ -155,6 +109,7 @@ export function registerAdminHandlers(
         ctx.match[1];
 
       try {
+
         const result =
           await listingService
             .approveListing(
@@ -176,6 +131,7 @@ export function registerAdminHandlers(
         }
 
         try {
+
           await ctx.telegram.editMessageText(
             chatId,
             controlMessage.message_id,
@@ -185,7 +141,9 @@ export function registerAdminHandlers(
               parse_mode: 'HTML',
             }
           );
+
         } catch (error) {
+
           console.error(
             '❌ Failed to update approve control message:',
             error
@@ -248,31 +206,18 @@ export function registerAdminHandlers(
         return;
       }
 
-      try {
+      await ctx.reply(
+        `❌ ပယ်ဖျက်မည် - ID: ${listingId}\n\n` +
+        `ပယ်ဖျက်ရသည့် အကြောင်းပြချက်ကို ရေးပေးပါ -`,
+        {
+          ...Markup.forceReply(),
 
-        await ctx.reply(
-          `❌ <b>ပယ်ဖျက်မည်</b>\n\n` +
-          `ID: <code>${listingId}</code>\n\n` +
-          `ပယ်ဖျက်ရသည့် အကြောင်းပြချက်ကို ရေးပေးပါ -`,
-          {
-            parse_mode: 'HTML',
-
-            ...Markup.forceReply(),
-
-            reply_parameters: {
-              message_id:
-                controlMessage.message_id,
-            },
-          }
-        );
-
-      } catch (error) {
-
-        console.error(
-          '❌ Failed to send rejection prompt:',
-          error
-        );
-      }
+          reply_parameters: {
+            message_id:
+              controlMessage.message_id,
+          },
+        }
+      );
     }
   );
 
@@ -283,10 +228,6 @@ export function registerAdminHandlers(
   bot.on(
     'text',
     async (ctx, next) => {
-
-      // ------------------------------------------------------
-      // Only admins in the admin chat
-      // ------------------------------------------------------
 
       if (
         !isAdmin(ctx) ||
@@ -310,34 +251,30 @@ export function registerAdminHandlers(
         return next();
       }
 
-      // ------------------------------------------------------
-      // Get text from the message being replied to
-      // ------------------------------------------------------
+      /*
+       * The rejection prompt itself contains:
+       *
+       * ❌ ပယ်ဖျက်မည် - ID: <listingId>
+       *
+       * Extract the listing ID from that message.
+       */
 
       const replyText =
         'text' in repliedMessage
           ? repliedMessage.text
           : '';
 
-      if (!replyText) {
-        return next();
-      }
-
-      // ------------------------------------------------------
-      // Check whether this is our rejection prompt
-      // ------------------------------------------------------
-
-      const promptData =
-        parseRejectionPrompt(
-          replyText
+      const match =
+        replyText.match(
+          /^❌ ပယ်ဖျက်မည် - ID: (.+)$/
         );
 
-      if (!promptData) {
+      if (!match) {
         return next();
       }
 
       const listingId =
-        promptData.listingId;
+        match[1].trim();
 
       const reason =
         ctx.message.text.trim();
@@ -350,9 +287,9 @@ export function registerAdminHandlers(
         return;
       }
 
-      // ------------------------------------------------------
+      // ======================================================
       // Reject listing
-      // ------------------------------------------------------
+      // ======================================================
 
       try {
 
@@ -364,25 +301,25 @@ export function registerAdminHandlers(
             );
 
         /*
-         * The rejection prompt was created as a reply
-         * to the original admin control message.
+         * The admin's reason message replies to the
+         * rejection prompt.
          *
-         * Telegraf's TypeScript definitions can narrow
-         * reply_to_message differently depending on the
-         * message union type, so we use a small, local
-         * structural check here.
+         * The rejection prompt itself replies to the
+         * original control message.
+         *
+         * We need that original control message ID so
+         * we can replace its Approve/Reject buttons.
          */
 
-        const rejectionPromptWithReply =
-          repliedMessage as {
-            message_id: number;
+        const rejectionPromptData =
+          repliedMessage as unknown as {
             reply_to_message?: {
               message_id: number;
             };
           };
 
         const controlMessageId =
-          rejectionPromptWithReply
+          rejectionPromptData
             .reply_to_message
             ?.message_id;
 
@@ -390,15 +327,32 @@ export function registerAdminHandlers(
           controlMessageId === undefined
         ) {
           console.error(
-            '❌ Could not find original control message ID for rejection.'
+            '❌ Could not find control message ID for rejection.'
+          );
+
+          /*
+           * IMPORTANT:
+           *
+           * Do NOT silently return.
+           *
+           * The listing has already been rejected.
+           * Tell the admin what happened even if we
+           * couldn't update the original control message.
+           */
+
+          await ctx.reply(
+            result.message,
+            {
+              parse_mode: 'HTML',
+            }
           );
 
           return;
         }
 
-        // ----------------------------------------------------
-        // Update original admin control message
-        // ----------------------------------------------------
+        // ====================================================
+        // Update original control message
+        // ====================================================
 
         try {
 
@@ -417,6 +371,20 @@ export function registerAdminHandlers(
           console.error(
             '❌ Failed to update rejection control message:',
             error
+          );
+
+          /*
+           * The database rejection succeeded.
+           * Only the Telegram UI update failed.
+           *
+           * Still tell the admin the rejection succeeded.
+           */
+
+          await ctx.reply(
+            result.message,
+            {
+              parse_mode: 'HTML',
+            }
           );
         }
 
