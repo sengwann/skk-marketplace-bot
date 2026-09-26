@@ -15,11 +15,12 @@ import {
 import { prisma } from './prisma';
 
 // ============================================================
-// Repository input
+// Create input
 // ============================================================
 
 export interface CreateListingRepositoryInput {
   sellerTelegramId: number;
+
   sellerUsername: string | null;
   sellerFirstName: string | null;
 
@@ -38,7 +39,7 @@ export interface CreateListingRepositoryInput {
 }
 
 // ============================================================
-// Prisma -> Application entity
+// Prisma model → Application entity
 // ============================================================
 
 function mapToEntity(
@@ -56,11 +57,8 @@ function mapToEntity(
     note: string | null;
     contact: string;
     photoFileIds: string[];
-
-    // These come from Prisma
     status: PrismaListingStatus;
     availability: PrismaListingAvailability;
-
     rejectionReason: string | null;
     channelMessageId: bigint | null;
     createdAt: Date;
@@ -105,7 +103,6 @@ function mapToEntity(
     photoFileIds:
       model.photoFileIds,
 
-    // Convert Prisma enums into application enums
     status:
       model.status as ListingStatus,
 
@@ -130,9 +127,10 @@ function mapToEntity(
 // ============================================================
 
 export const ListingRepository = {
-  // ----------------------------------------------------------
-  // Create
-  // ----------------------------------------------------------
+
+  // ==========================================================
+  // Create listing
+  // ==========================================================
 
   async create(
     data: CreateListingRepositoryInput
@@ -187,16 +185,18 @@ export const ListingRepository = {
     return mapToEntity(created);
   },
 
-  // ----------------------------------------------------------
-  // Find by ID
-  // ----------------------------------------------------------
+  // ==========================================================
+  // Find listing
+  // ==========================================================
 
   async findById(
     id: string
   ): Promise<Listing | null> {
     const listing =
       await prisma.listing.findUnique({
-        where: { id },
+        where: {
+          id,
+        },
       });
 
     if (!listing) {
@@ -206,13 +206,22 @@ export const ListingRepository = {
     return mapToEntity(listing);
   },
 
-  // ----------------------------------------------------------
+  // ==========================================================
   // Claim listing for approval
-  // ----------------------------------------------------------
+  // ==========================================================
 
   async claimForApproval(
     id: string
   ): Promise<boolean> {
+    /*
+     * Atomic state transition:
+     *
+     * PENDING → APPROVING
+     *
+     * Only one admin can successfully claim
+     * the listing.
+     */
+
     const result =
       await prisma.listing.updateMany({
         where: {
@@ -229,20 +238,28 @@ export const ListingRepository = {
     return result.count === 1;
   },
 
-  // ----------------------------------------------------------
-  // Approve
-  // ----------------------------------------------------------
+  // ==========================================================
+  // Finalize approval
+  // ==========================================================
 
   async approve(
     id: string,
     channelMessageId: number
   ): Promise<boolean> {
+    /*
+     * Atomic state transition:
+     *
+     * APPROVING → APPROVED
+     *
+     * The channel message ID is stored at the
+     * same time as the approval state.
+     */
+
     const result =
       await prisma.listing.updateMany({
         where: {
           id,
-          status:
-            ListingStatus.APPROVING,
+          status: ListingStatus.APPROVING,
         },
 
         data: {
@@ -257,20 +274,27 @@ export const ListingRepository = {
     return result.count === 1;
   },
 
-  // ----------------------------------------------------------
-  // Reject
-  // ----------------------------------------------------------
+  // ==========================================================
+  // Reject listing
+  // ==========================================================
 
   async reject(
     id: string,
     reason: string
   ): Promise<boolean> {
+    /*
+     * Only PENDING listings can be rejected.
+     *
+     * Atomic state transition:
+     *
+     * PENDING → REJECTED
+     */
+
     const result =
       await prisma.listing.updateMany({
         where: {
           id,
-          status:
-            ListingStatus.PENDING,
+          status: ListingStatus.PENDING,
         },
 
         data: {
@@ -285,19 +309,26 @@ export const ListingRepository = {
     return result.count === 1;
   },
 
-  // ----------------------------------------------------------
-  // Rollback approval
-  // ----------------------------------------------------------
+  // ==========================================================
+  // Rollback approval attempt
+  // ==========================================================
 
   async rollbackToPending(
     id: string
   ): Promise<boolean> {
+    /*
+     * Used only when Telegram publishing fails.
+     *
+     * Atomic state transition:
+     *
+     * APPROVING → PENDING
+     */
+
     const result =
       await prisma.listing.updateMany({
         where: {
           id,
-          status:
-            ListingStatus.APPROVING,
+          status: ListingStatus.APPROVING,
         },
 
         data: {
@@ -309,22 +340,115 @@ export const ListingRepository = {
     return result.count === 1;
   },
 
-  // ----------------------------------------------------------
-  // Change availability
-  // ----------------------------------------------------------
+  // ==========================================================
+  // Update availability
+  // ==========================================================
 
   async updateAvailability(
     id: string,
     availability: ListingAvailability
   ): Promise<Listing> {
-    const updated =
-      await prisma.listing.update({
-        where: { id },
+    /*
+     * IMPORTANT:
+     *
+     * Availability only makes sense for an approved listing.
+     *
+     * Allowed:
+     *
+     * APPROVED + AVAILABLE
+     *       ↓
+     * SOLD_OUT
+     *
+     * APPROVED + SOLD_OUT
+     *       ↓
+     * AVAILABLE
+     *
+     * Not allowed:
+     *
+     * PENDING   → SOLD_OUT
+     * REJECTED  → AVAILABLE
+     * APPROVING → SOLD_OUT
+     *
+     * The status condition is included directly inside
+     * updateMany(), making the check atomic.
+     */
+
+    const result =
+      await prisma.listing.updateMany({
+        where: {
+          id,
+
+          status:
+            ListingStatus.APPROVED,
+        },
 
         data: {
           availability,
         },
       });
+
+    /*
+     * If no row was updated, either:
+     *
+     * 1. The listing doesn't exist, or
+     * 2. The listing is not APPROVED.
+     *
+     * Fetch the listing so we can give the caller
+     * a useful error.
+     */
+
+    if (result.count !== 1) {
+      const listing =
+        await prisma.listing.findUnique({
+          where: {
+            id,
+          },
+
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+      if (!listing) {
+        throw new Error(
+          'Listing not found.'
+        );
+      }
+
+      throw new Error(
+        'Only approved listings can change availability.'
+      );
+    }
+
+    /*
+     * The conditional update succeeded.
+     *
+     * Fetch the complete updated listing so the
+     * service receives the same Listing entity shape
+     * as before.
+     */
+
+    const updated =
+      await prisma.listing.findUnique({
+        where: {
+          id,
+        },
+      });
+
+    if (!updated) {
+      /*
+       * This should practically never happen because
+       * the update above succeeded.
+       *
+       * Keep the check anyway so the repository never
+       * returns an invalid value.
+       */
+
+      throw new Error(
+        'Listing could not be retrieved after updating availability.'
+      );
+    }
 
     return mapToEntity(updated);
   },
