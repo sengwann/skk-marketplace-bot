@@ -1,3 +1,4 @@
+
 import { Context, Scenes } from 'telegraf';
 import { ListingService } from '../services/listing.service';
 import { SettingService } from '../services/setting.service';
@@ -76,6 +77,45 @@ export interface Listing {
 }
 
 // ============================================================
+// Admin edit session
+// ============================================================
+
+export type AdminEditField =
+  | 'productName'
+  | 'priceAmount'
+  | 'condition'
+  | 'note'
+  | 'contact';
+
+export interface AdminEditSessionData {
+  listingId: string;
+
+  // Original admin control message.
+  controlMessageId: number;
+
+  // Currently selected field waiting for text input.
+  editingField?: AdminEditField;
+
+  // The exact Telegram prompt message that the admin
+  // must reply to.
+  promptMessageId?: number;
+
+  // Draft values.
+  //
+  // These values are NOT saved to PostgreSQL until
+  // the admin presses "💾 Save".
+  productName: string;
+  category: Category;
+  location: Location;
+
+  price: Price;
+
+  condition: string;
+  note: string | null;
+  contact: string;
+}
+
+// ============================================================
 // Wizard session
 // ============================================================
 
@@ -89,6 +129,9 @@ export interface WizardSessionData
   note?: string | null;
   contact?: string;
   photoFileIds?: string[];
+
+  // Admin editing state.
+  adminEdit?: AdminEditSessionData;
 }
 
 // ============================================================
@@ -109,3 +152,4 @@ export interface MyContext extends Context {
 
   settingService: SettingService;
 }
+

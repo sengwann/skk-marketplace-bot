@@ -1,3 +1,4 @@
+
 import {
   Listing,
   Category,
@@ -38,6 +39,10 @@ export interface CreateListingRepositoryInput {
   photoFileIds: string[];
 }
 
+// ============================================================
+// Update pending listing input
+// ============================================================
+
 export interface UpdatePendingListingInput {
   productName?: string;
   category?: Category;
@@ -59,19 +64,26 @@ function mapToEntity(
     sellerTelegramId: bigint;
     sellerUsername: string | null;
     sellerFirstName: string | null;
+
     productName: string;
     category: string;
     location: string;
+
     priceAmount: number;
     currency: string;
+
     condition: string;
     note: string | null;
     contact: string;
+
     photoFileIds: string[];
+
     status: PrismaListingStatus;
     availability: PrismaListingAvailability;
+
     rejectionReason: string | null;
     channelMessageId: bigint | null;
+
     createdAt: Date;
   }
 ): Listing {
@@ -228,9 +240,6 @@ export const ListingRepository = {
      * Atomic state transition:
      *
      * PENDING → APPROVING
-     *
-     * Only one admin can successfully claim
-     * the listing.
      */
 
     const result =
@@ -261,9 +270,6 @@ export const ListingRepository = {
      * Atomic state transition:
      *
      * APPROVING → APPROVED
-     *
-     * The channel message ID is stored at the
-     * same time as the approval state.
      */
 
     const result =
@@ -294,8 +300,6 @@ export const ListingRepository = {
     reason: string
   ): Promise<boolean> {
     /*
-     * Only PENDING listings can be rejected.
-     *
      * Atomic state transition:
      *
      * PENDING → REJECTED
@@ -320,113 +324,161 @@ export const ListingRepository = {
     return result.count === 1;
   },
 
+  // ==========================================================
+  // Update pending listing
+  // ==========================================================
+
   async updatePendingListing(
-  id: string,
-  data: UpdatePendingListingInput
-): Promise<Listing> {
-  const existing =
-    await prisma.listing.findUnique({
-      where: {
-        id,
-      },
-    });
+    id: string,
+    data: UpdatePendingListingInput
+  ): Promise<Listing> {
+    /*
+     * Only PENDING listings may be edited.
+     *
+     * We check the current state first so the admin
+     * receives a useful error.
+     */
 
-  if (!existing) {
-    throw new Error(
-      'Listing not found.'
-    );
-  }
+    const existing =
+      await prisma.listing.findUnique({
+        where: {
+          id,
+        },
+      });
 
-  if (
-    existing.status !==
-    ListingStatus.PENDING
-  ) {
-    throw new Error(
-      'Only pending listings can be edited.'
-    );
-  }
+    if (!existing) {
+      throw new Error(
+        'Listing not found.'
+      );
+    }
 
-  const originalData =
-    existing.originalData ??
-    {
-      productName:
-        existing.productName,
+    if (
+      existing.status !==
+      ListingStatus.PENDING
+    ) {
+      throw new Error(
+        'Only pending listings can be edited.'
+      );
+    }
 
-      category:
-        existing.category,
+    /*
+     * Save the original seller values only once.
+     *
+     * If the listing has already been edited before,
+     * originalData remains unchanged.
+     */
 
-      location:
-        existing.location,
+    const originalData =
+      existing.originalData ??
+      {
+        productName:
+          existing.productName,
 
-      priceAmount:
-        existing.priceAmount,
+        category:
+          existing.category,
 
-      currency:
-        existing.currency,
+        location:
+          existing.location,
 
-      condition:
-        existing.condition,
+        priceAmount:
+          existing.priceAmount,
 
-      note:
-        existing.note,
+        currency:
+          existing.currency,
 
-      contact:
-        existing.contact,
-    };
+        condition:
+          existing.condition,
 
-  const updated =
-    await prisma.listing.update({
-      where: {
-        id,
-      },
+        note:
+          existing.note,
 
-      data: {
-        ...(data.productName !== undefined && {
-          productName:
-            data.productName,
-        }),
+        contact:
+          existing.contact,
+      };
 
-        ...(data.category !== undefined && {
-          category:
-            data.category,
-        }),
+    /*
+     * The WHERE clause includes PENDING again.
+     *
+     * This protects against a race where another
+     * admin approves/rejects the listing after the
+     * first check above.
+     */
 
-        ...(data.location !== undefined && {
-          location:
-            data.location,
-        }),
+    const result =
+      await prisma.listing.updateMany({
+        where: {
+          id,
 
-        ...(data.priceAmount !== undefined && {
-          priceAmount:
-            data.priceAmount,
-        }),
+          status:
+            ListingStatus.PENDING,
+        },
 
-        ...(data.currency !== undefined && {
-          currency:
-            data.currency,
-        }),
+        data: {
+          ...(data.productName !== undefined && {
+            productName:
+              data.productName,
+          }),
 
-        ...(data.condition !== undefined && {
-          condition:
-            data.condition,
-        }),
+          ...(data.category !== undefined && {
+            category:
+              data.category,
+          }),
 
-        ...(data.note !== undefined && {
-          note:
-            data.note,
-        }),
+          ...(data.location !== undefined && {
+            location:
+              data.location,
+          }),
 
-        ...(data.contact !== undefined && {
-          contact:
-            data.contact,
-        }),
+          ...(data.priceAmount !== undefined && {
+            priceAmount:
+              data.priceAmount,
+          }),
 
-        originalData,
-      },
-    });
+          ...(data.currency !== undefined && {
+            currency:
+              data.currency,
+          }),
 
-  return mapToEntity(updated);
-},
+          ...(data.condition !== undefined && {
+            condition:
+              data.condition,
+          }),
+
+          ...(data.note !== undefined && {
+            note:
+              data.note,
+          }),
+
+          ...(data.contact !== undefined && {
+            contact:
+              data.contact,
+          }),
+
+          originalData,
+        },
+      });
+
+    if (result.count !== 1) {
+      throw new Error(
+        'This listing has already been processed or is being processed.'
+      );
+    }
+
+    const updated =
+      await prisma.listing.findUnique({
+        where: {
+          id,
+        },
+      });
+
+    if (!updated) {
+      throw new Error(
+        'Listing could not be retrieved after editing.'
+      );
+    }
+
+    return mapToEntity(updated);
+  },
 
   // ==========================================================
   // Rollback approval attempt
@@ -436,8 +488,6 @@ export const ListingRepository = {
     id: string
   ): Promise<boolean> {
     /*
-     * Used only when Telegram publishing fails.
-     *
      * Atomic state transition:
      *
      * APPROVING → PENDING
@@ -468,28 +518,7 @@ export const ListingRepository = {
     availability: ListingAvailability
   ): Promise<Listing> {
     /*
-     * IMPORTANT:
-     *
-     * Availability only makes sense for an approved listing.
-     *
-     * Allowed:
-     *
-     * APPROVED + AVAILABLE
-     *       ↓
-     * SOLD_OUT
-     *
-     * APPROVED + SOLD_OUT
-     *       ↓
-     * AVAILABLE
-     *
-     * Not allowed:
-     *
-     * PENDING   → SOLD_OUT
-     * REJECTED  → AVAILABLE
-     * APPROVING → SOLD_OUT
-     *
-     * The status condition is included directly inside
-     * updateMany(), making the check atomic.
+     * Availability only makes sense for APPROVED listings.
      */
 
     const result =
@@ -505,16 +534,6 @@ export const ListingRepository = {
           availability,
         },
       });
-
-    /*
-     * If no row was updated, either:
-     *
-     * 1. The listing doesn't exist, or
-     * 2. The listing is not APPROVED.
-     *
-     * Fetch the listing so we can give the caller
-     * a useful error.
-     */
 
     if (result.count !== 1) {
       const listing =
@@ -540,14 +559,6 @@ export const ListingRepository = {
       );
     }
 
-    /*
-     * The conditional update succeeded.
-     *
-     * Fetch the complete updated listing so the
-     * service receives the same Listing entity shape
-     * as before.
-     */
-
     const updated =
       await prisma.listing.findUnique({
         where: {
@@ -556,14 +567,6 @@ export const ListingRepository = {
       });
 
     if (!updated) {
-      /*
-       * This should practically never happen because
-       * the update above succeeded.
-       *
-       * Keep the check anyway so the repository never
-       * returns an invalid value.
-       */
-
       throw new Error(
         'Listing could not be retrieved after updating availability.'
       );
