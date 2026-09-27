@@ -77,7 +77,7 @@ export interface Listing {
 }
 
 // ============================================================
-// Admin edit session
+// Admin edit field
 // ============================================================
 
 export type AdminEditField =
@@ -87,31 +87,40 @@ export type AdminEditField =
   | 'note'
   | 'contact';
 
+// ============================================================
+// Admin edit session
+// ============================================================
+
 export interface AdminEditSessionData {
   listingId: string;
 
   // Original admin control message.
   controlMessageId: number;
 
-  // Currently selected field waiting for text input.
+  // Field currently waiting for text input.
   editingField?: AdminEditField;
 
-  // The exact Telegram prompt message that the admin
-  // must reply to.
+  // ForceReply prompt message ID.
   promptMessageId?: number;
 
-  // Draft values.
+  // ----------------------------------------------------------
+  // Draft values
   //
-  // These values are NOT saved to PostgreSQL until
-  // the admin presses "💾 Save".
+  // These are NOT written to PostgreSQL until Save is pressed.
+  // ----------------------------------------------------------
+
   productName: string;
+
   category: Category;
+
   location: Location;
 
   price: Price;
 
   condition: string;
+
   note: string | null;
+
   contact: string;
 }
 
@@ -122,17 +131,35 @@ export interface AdminEditSessionData {
 export interface WizardSessionData
   extends Scenes.WizardSessionData {
   productName?: string;
-  category?: Category;
-  location?: Location;
-  price?: Price;
-  condition?: string;
-  note?: string | null;
-  contact?: string;
-  photoFileIds?: string[];
 
-  // Admin editing state.
-  adminEdit?: AdminEditSessionData;
+  category?: Category;
+
+  location?: Location;
+
+  price?: Price;
+
+  condition?: string;
+
+  note?: string | null;
+
+  contact?: string;
+
+  photoFileIds?: string[];
 }
+
+// ============================================================
+// Admin session type
+//
+// Telegraf's WizardSession generic does not expose our custom
+// adminEdit property correctly in this project.
+//
+// So we explicitly add adminEdit to the session type here.
+// ============================================================
+
+export type MyWizardSession =
+  Scenes.WizardSession<WizardSessionData> & {
+    adminEdit?: AdminEditSessionData;
+  };
 
 // ============================================================
 // Telegram context
@@ -144,7 +171,7 @@ export interface MyContext extends Context {
     WizardSessionData
   >;
 
-  session: Scenes.WizardSession<WizardSessionData>;
+  session: MyWizardSession;
 
   wizard: Scenes.WizardContextWizard<MyContext>;
 
@@ -152,4 +179,3 @@ export interface MyContext extends Context {
 
   settingService: SettingService;
 }
-

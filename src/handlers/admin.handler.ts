@@ -757,21 +757,24 @@ export function registerAdminHandlers(
       }
 
       const prompts: Record<
-        AdminEditField,
-        string
-      > = {
-        productName:
-          '📦 ပစ္စည်းအမည်အသစ်ကို ရေးပေးပါ။',
+  AdminEditField,
+  string
+> = {
+  productName:
+    '📦 ပစ္စည်းအမည်အသစ်ကို ရေးပေးပါ။',
 
-        condition:
-          '📦 ပစ္စည်းအခြေအနေအသစ်ကို ရေးပေးပါ။',
+  priceAmount:
+    '💰 ဈေးနှုန်းအသစ်ကို ရေးပေးပါ။\n\nဥပမာ: <code>250000</code>',
 
-        note:
-          '📝 မှတ်ချက်အသစ်ကို ရေးပေးပါ။\n\nမှတ်ချက်မထားလိုပါက <code>-</code> ဟု ရေးပါ။',
+  condition:
+    '📦 ပစ္စည်းအခြေအနေအသစ်ကို ရေးပေးပါ။',
 
-        contact:
-          '📞 ဆက်သွယ်ရန်အချက်အလက်အသစ်ကို ရေးပေးပါ။',
-      };
+  note:
+    '📝 မှတ်ချက်အသစ်ကို ရေးပေးပါ။\n\nမှတ်ချက်မထားလိုပါက <code>-</code> ဟု ရေးပါ။',
+
+  contact:
+    '📞 ဆက်သွယ်ရန်အချက်အလက်အသစ်ကို ရေးပေးပါ။',
+};
 
       draft.editingField =
         field;
