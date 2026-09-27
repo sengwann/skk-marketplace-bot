@@ -1,4 +1,5 @@
 import { Markup, Telegraf } from 'telegraf';
+import { config } from '../config';
 
 import {
   MyContext,
@@ -228,6 +229,24 @@ export function registerAdminHandlers(
   bot.on(
     'text',
     async (ctx, next) => {
+      console.log('🧪 ADMIN TEXT DEBUG:', {
+  userId: ctx.from?.id,
+  chatId: ctx.chat?.id,
+  adminChatId: config.adminChatId,
+  isAdmin: isAdmin(ctx),
+  isAdminChat: isAdminChat(ctx),
+  text: ctx.message.text,
+  hasReply: 'reply_to_message' in ctx.message,
+  replyText:
+    'reply_to_message' in ctx.message
+      ? (
+          ctx.message.reply_to_message &&
+          'text' in ctx.message.reply_to_message
+            ? ctx.message.reply_to_message.text
+            : undefined
+        )
+      : undefined,
+});
 
       if (
         !isAdmin(ctx) ||
