@@ -3,6 +3,10 @@ import {
 } from '../types/listing';
 
 import {
+  UpdatePendingListingInput,
+} from '../db/listing.repository';
+
+import {
   ListingRepository,
   CreateListingRepositoryInput,
 } from '../db/listing.repository';
@@ -17,43 +21,52 @@ import {
   Location,
 } from '../types/listing';
 
-// ============================================================
-// Create input
-// ============================================================
-
 export interface CreateListingInput {
   sellerTelegramId: number;
-
   sellerUsername?: string | null;
   sellerFirstName?: string | null;
-
   productName: string;
   category: Category;
   location: Location;
-
   priceAmount: number;
   currency: Currency;
-
   condition: string;
   note?: string | null;
   contact: string;
-
   photoFileIds: string[];
 }
-
-// ============================================================
-// Service
-// ============================================================
 
 export class ListingService {
   constructor(
     private telegramService: TelegramService
   ) {}
+  async updatePendingListing(
+  id: string,
+  data: UpdatePendingListingInput
+) {
+  const listing =
+    await ListingRepository.findById(id);
 
-  // ==========================================================
-  // Create listing
-  // ==========================================================
+  if (!listing) {
+    throw new Error(
+      'Listing not found.'
+    );
+  }
 
+  if (listing.status !== 'PENDING') {
+    throw new Error(
+      'Only pending listings can be edited.'
+    );
+  }
+
+  const updated =
+    await ListingRepository.updatePendingListing(
+      id,
+      data
+    );
+
+  return updated;
+}
   async createListing(
     data: CreateListingInput
   ) {
@@ -61,37 +74,26 @@ export class ListingService {
       CreateListingRepositoryInput = {
         sellerTelegramId:
           data.sellerTelegramId,
-
         sellerUsername:
           data.sellerUsername ?? null,
-
         sellerFirstName:
           data.sellerFirstName ?? null,
-
         productName:
           data.productName,
-
         category:
           data.category,
-
         location:
           data.location,
-
         priceAmount:
           data.priceAmount,
-
         currency:
           data.currency,
-
         condition:
           data.condition,
-
         note:
           data.note ?? null,
-
         contact:
           data.contact,
-
         photoFileIds:
           data.photoFileIds,
       };
@@ -106,16 +108,6 @@ export class ListingService {
         listing
       );
     } catch (error) {
-      /*
-       * The database listing already exists.
-       *
-       * We intentionally don't delete it here because
-       * silently deleting a seller's submission can lose data.
-       *
-       * The error should be visible in Render logs so the
-       * admin can investigate.
-       */
-
       console.error(
         '❌ Listing saved but failed to send to admin group:',
         error
@@ -129,10 +121,6 @@ export class ListingService {
     return listing;
   }
 
-  // ==========================================================
-  // Approve listing
-  // ==========================================================
-
   async approveListing(id: string) {
     const listing =
       await ListingRepository.findById(id);
@@ -142,19 +130,6 @@ export class ListingService {
         'Listing not found.'
       );
     }
-
-    /*
-     * Atomically claim the listing.
-     *
-     * Only:
-     *
-     * PENDING → APPROVING
-     *
-     * is allowed.
-     *
-     * This prevents two admins from approving the same
-     * listing at the same time.
-     */
 
     const claimed =
       await ListingRepository.claimForApproval(id);
@@ -167,10 +142,6 @@ export class ListingService {
 
     let channelMessageId: number;
 
-    // ========================================================
-    // Step 1: Publish to Telegram channel
-    // ========================================================
-
     try {
       const channelMessage =
         await this.telegramService.publishToChannel(
@@ -180,15 +151,6 @@ export class ListingService {
       channelMessageId =
         channelMessage.message_id;
     } catch (error) {
-      /*
-       * Telegram definitely failed.
-       *
-       * The listing was not successfully published,
-       * so it is safe to return it to PENDING.
-       *
-       * This allows an admin to retry the approval.
-       */
-
       await ListingRepository
         .rollbackToPending(id)
         .catch((rollbackError) => {
@@ -200,10 +162,6 @@ export class ListingService {
 
       throw error;
     }
-
-    // ========================================================
-    // Step 2: Finalize database approval
-    // ========================================================
 
     try {
       const approved =
@@ -218,27 +176,6 @@ export class ListingService {
         );
       }
     } catch (error) {
-      /*
-       * IMPORTANT:
-       *
-       * Telegram has ALREADY published the listing.
-       *
-       * Therefore we MUST NOT do:
-       *
-       * rollbackToPending()
-       *
-       * here.
-       *
-       * If we changed the listing back to PENDING and
-       * another admin clicked Approve, the bot could publish
-       * the same listing to the channel a second time.
-       *
-       * We intentionally leave it as APPROVING.
-       *
-       * A future reconciliation process can safely inspect
-       * APPROVING listings and complete the database update.
-       */
-
       console.error(
         '❌ Telegram published the listing, but database finalization failed:',
         {
@@ -253,9 +190,30 @@ export class ListingService {
       );
     }
 
-    // ========================================================
-    // Success
-    // ========================================================
+    /*
+     * At this point:
+     *
+     * Telegram channel publish = successful
+     * Database status = APPROVED
+     *
+     * Therefore seller notification failure
+     * must NOT make the approval fail.
+     */
+    try {
+  await this.telegramService.notifySellerApproved(
+    listing
+  );
+} catch (error) {
+  console.error(
+    '❌ Listing approved and published, but failed to notify seller:',
+    {
+      listingId: id,
+      sellerTelegramId:
+        listing.sellerTelegramId,
+      error,
+    }
+  );
+}
 
     return {
       message:
@@ -265,10 +223,6 @@ export class ListingService {
         `📢 Channel တွင် ဖော်ပြပြီးပါပြီ။`,
     };
   }
-
-  // ==========================================================
-  // Reject listing
-  // ==========================================================
 
   async rejectListing(
     id: string,
@@ -304,6 +258,31 @@ export class ListingService {
       );
     }
 
+    /*
+     * At this point:
+     *
+     * Database status = REJECTED
+     *
+     * Therefore seller notification failure
+     * must NOT make the rejection fail.
+     */
+   try {
+  await this.telegramService.notifySellerRejected(
+    listing,
+    cleanReason
+  );
+} catch (error) {
+  console.error(
+    '❌ Listing rejected, but failed to notify seller:',
+    {
+      listingId: id,
+      sellerTelegramId:
+        listing.sellerTelegramId,
+      error,
+    }
+  );
+}
+
     return {
       message:
         `❌ <b>ပယ်ဖျက်ပြီးပါပြီ</b>\n\n` +
@@ -312,23 +291,12 @@ export class ListingService {
     };
   }
 
-  // ==========================================================
-  // Mark sold out
-  // ==========================================================
-
-  async markAsSoldOut(
-    id: string
-  ) {
+  async markAsSoldOut(id: string) {
     const listing =
       await ListingRepository.updateAvailability(
         id,
         ListingAvailability.SOLD_OUT
       );
-
-    /*
-     * If this listing is already published,
-     * update the channel post too.
-     */
 
     if (
       listing.status === 'APPROVED' &&
@@ -346,13 +314,7 @@ export class ListingService {
     };
   }
 
-  // ==========================================================
-  // Mark available
-  // ==========================================================
-
-  async markAsAvailable(
-    id: string
-  ) {
+  async markAsAvailable(id: string) {
     const listing =
       await ListingRepository.updateAvailability(
         id,

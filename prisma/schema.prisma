@@ -36,7 +36,10 @@ model Listing {
   availability     ListingAvailability @default(AVAILABLE)
   rejectionReason  String?             @map("rejection_reason")
   channelMessageId BigInt?             @map("channel_message_id")
-  createdAt        DateTime            @default(now()) @map("created_at")
+
+  originalData     Json?               @map("original_data")
+
+  createdAt         DateTime            @default(now()) @map("created_at")
 
   @@index([status])
   @@index([availability])

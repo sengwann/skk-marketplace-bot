@@ -38,6 +38,17 @@ export interface CreateListingRepositoryInput {
   photoFileIds: string[];
 }
 
+export interface UpdatePendingListingInput {
+  productName?: string;
+  category?: Category;
+  location?: Location;
+  priceAmount?: number;
+  currency?: Currency;
+  condition?: string;
+  note?: string | null;
+  contact?: string;
+}
+
 // ============================================================
 // Prisma model → Application entity
 // ============================================================
@@ -308,6 +319,114 @@ export const ListingRepository = {
 
     return result.count === 1;
   },
+
+  async updatePendingListing(
+  id: string,
+  data: UpdatePendingListingInput
+): Promise<Listing> {
+  const existing =
+    await prisma.listing.findUnique({
+      where: {
+        id,
+      },
+    });
+
+  if (!existing) {
+    throw new Error(
+      'Listing not found.'
+    );
+  }
+
+  if (
+    existing.status !==
+    ListingStatus.PENDING
+  ) {
+    throw new Error(
+      'Only pending listings can be edited.'
+    );
+  }
+
+  const originalData =
+    existing.originalData ??
+    {
+      productName:
+        existing.productName,
+
+      category:
+        existing.category,
+
+      location:
+        existing.location,
+
+      priceAmount:
+        existing.priceAmount,
+
+      currency:
+        existing.currency,
+
+      condition:
+        existing.condition,
+
+      note:
+        existing.note,
+
+      contact:
+        existing.contact,
+    };
+
+  const updated =
+    await prisma.listing.update({
+      where: {
+        id,
+      },
+
+      data: {
+        ...(data.productName !== undefined && {
+          productName:
+            data.productName,
+        }),
+
+        ...(data.category !== undefined && {
+          category:
+            data.category,
+        }),
+
+        ...(data.location !== undefined && {
+          location:
+            data.location,
+        }),
+
+        ...(data.priceAmount !== undefined && {
+          priceAmount:
+            data.priceAmount,
+        }),
+
+        ...(data.currency !== undefined && {
+          currency:
+            data.currency,
+        }),
+
+        ...(data.condition !== undefined && {
+          condition:
+            data.condition,
+        }),
+
+        ...(data.note !== undefined && {
+          note:
+            data.note,
+        }),
+
+        ...(data.contact !== undefined && {
+          contact:
+            data.contact,
+        }),
+
+        originalData,
+      },
+    });
+
+  return mapToEntity(updated);
+},
 
   // ==========================================================
   // Rollback approval attempt

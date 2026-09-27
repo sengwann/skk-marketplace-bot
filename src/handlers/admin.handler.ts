@@ -1,3 +1,4 @@
+
 import { Markup, Telegraf } from 'telegraf';
 import { config } from '../config';
 
@@ -17,6 +18,55 @@ import {
 import {
   SettingService,
 } from '../services/setting.service';
+
+// ============================================================
+// Admin keyboard helpers
+// ============================================================
+
+function pendingListingKeyboard(
+  listingId: string
+) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(
+        '✏️ ပြင်ဆင်မည်',
+        `edit:${listingId}`
+      ),
+    ],
+    [
+      Markup.button.callback(
+        '✅ အတည်ပြုမည်',
+        `approve:${listingId}`
+      ),
+      Markup.button.callback(
+        '❌ ငြင်းပယ်မည်',
+        `reject:${listingId}`
+      ),
+    ],
+  ]);
+}
+
+function availabilityKeyboard(
+  listingId: string,
+  isAvailable: boolean
+) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(
+        isAvailable
+          ? '🔴 Sold Out'
+          : '🟢 Available',
+        isAvailable
+          ? `soldout:${listingId}`
+          : `available:${listingId}`
+      ),
+    ],
+  ]);
+}
+
+// ============================================================
+// Admin handlers
+// ============================================================
 
 export function registerAdminHandlers(
   bot: Telegraf<MyContext>,
@@ -58,6 +108,7 @@ export function registerAdminHandlers(
     }
 
     try {
+
       await settingService.updateRules(
         newRules
       );
@@ -137,9 +188,15 @@ export function registerAdminHandlers(
             chatId,
             controlMessage.message_id,
             undefined,
-            result.message,
+            result.message +
+              `\n\n🟢 <b>Status: Available</b>`,
             {
               parse_mode: 'HTML',
+
+              ...availabilityKeyboard(
+                listingId,
+                true
+              ),
             }
           );
 
@@ -223,30 +280,186 @@ export function registerAdminHandlers(
   );
 
   // ==========================================================
+  // Mark listing as SOLD OUT
+  // ==========================================================
+
+  bot.action(
+    /^soldout:(.+)$/,
+    async (ctx) => {
+
+      if (!isAdmin(ctx)) {
+        await ctx
+          .answerCbQuery(
+            '⚠️ ဤခလုတ်ကို အုပ်ထိန်းသူများသာ နှိပ်ခွင့်ရှိပါသည်။',
+            {
+              show_alert: true,
+            }
+          )
+          .catch(() => {});
+
+        return;
+      }
+
+      await ctx
+        .answerCbQuery(
+          '⏳ Sold Out ပြောင်းနေပါသည်...'
+        )
+        .catch(() => {});
+
+      const listingId =
+        ctx.match[1];
+
+      const controlMessage =
+        ctx.callbackQuery.message;
+
+      const chatId =
+        ctx.chat?.id;
+
+      if (
+        !controlMessage ||
+        chatId === undefined
+      ) {
+        return;
+      }
+
+      try {
+
+        const result =
+          await listingService.markAsSoldOut(
+            listingId
+          );
+
+        await ctx.telegram.editMessageText(
+          chatId,
+          controlMessage.message_id,
+          undefined,
+          result.message +
+            `\n\n🔴 <b>Status: Sold Out</b>`,
+          {
+            parse_mode: 'HTML',
+
+            ...availabilityKeyboard(
+              listingId,
+              false
+            ),
+          }
+        );
+
+      } catch (error) {
+
+        console.error(
+          '❌ Admin sold-out error:',
+          error
+        );
+
+        await ctx
+          .answerCbQuery(
+            error instanceof Error
+              ? `❌ ${error.message}`
+              : '❌ Sold Out ပြောင်း၍ မရပါ။',
+            {
+              show_alert: true,
+            }
+          )
+          .catch(() => {});
+      }
+    }
+  );
+
+  // ==========================================================
+  // Mark listing as AVAILABLE
+  // ==========================================================
+
+  bot.action(
+    /^available:(.+)$/,
+    async (ctx) => {
+
+      if (!isAdmin(ctx)) {
+        await ctx
+          .answerCbQuery(
+            '⚠️ ဤခလုတ်ကို အုပ်ထိန်းသူများသာ နှိပ်ခွင့်ရှိပါသည်။',
+            {
+              show_alert: true,
+            }
+          )
+          .catch(() => {});
+
+        return;
+      }
+
+      await ctx
+        .answerCbQuery(
+          '⏳ Available ပြောင်းနေပါသည်...'
+        )
+        .catch(() => {});
+
+      const listingId =
+        ctx.match[1];
+
+      const controlMessage =
+        ctx.callbackQuery.message;
+
+      const chatId =
+        ctx.chat?.id;
+
+      if (
+        !controlMessage ||
+        chatId === undefined
+      ) {
+        return;
+      }
+
+      try {
+
+        const result =
+          await listingService.markAsAvailable(
+            listingId
+          );
+
+        await ctx.telegram.editMessageText(
+          chatId,
+          controlMessage.message_id,
+          undefined,
+          result.message +
+            `\n\n🟢 <b>Status: Available</b>`,
+          {
+            parse_mode: 'HTML',
+
+            ...availabilityKeyboard(
+              listingId,
+              true
+            ),
+          }
+        );
+
+      } catch (error) {
+
+        console.error(
+          '❌ Admin available error:',
+          error
+        );
+
+        await ctx
+          .answerCbQuery(
+            error instanceof Error
+              ? `❌ ${error.message}`
+              : '❌ Available ပြောင်း၍ မရပါ။',
+            {
+              show_alert: true,
+            }
+          )
+          .catch(() => {});
+      }
+    }
+  );
+
+  // ==========================================================
   // Rejection reason
   // ==========================================================
 
   bot.on(
     'text',
     async (ctx, next) => {
-      console.log('🧪 ADMIN TEXT DEBUG:', {
-  userId: ctx.from?.id,
-  chatId: ctx.chat?.id,
-  adminChatId: config.adminChatId,
-  isAdmin: isAdmin(ctx),
-  isAdminChat: isAdminChat(ctx),
-  text: ctx.message.text,
-  hasReply: 'reply_to_message' in ctx.message,
-  replyText:
-    'reply_to_message' in ctx.message
-      ? (
-          ctx.message.reply_to_message &&
-          'text' in ctx.message.reply_to_message
-            ? ctx.message.reply_to_message.text
-            : undefined
-        )
-      : undefined,
-});
 
       if (
         !isAdmin(ctx) ||
@@ -271,11 +484,14 @@ export function registerAdminHandlers(
       }
 
       /*
-       * The rejection prompt itself contains:
+       * The rejection prompt contains two lines:
        *
        * ❌ ပယ်ဖျက်မည် - ID: <listingId>
        *
-       * Extract the listing ID from that message.
+       * ပယ်ဖျက်ရသည့် အကြောင်းပြချက်ကို ရေးပေးပါ -
+       *
+       * We only need the first line to identify
+       * the listing.
        */
 
       const replyText =
@@ -283,8 +499,13 @@ export function registerAdminHandlers(
           ? repliedMessage.text
           : '';
 
+      const firstLine =
+        replyText
+          .split('\n')[0]
+          .trim();
+
       const match =
-        replyText.match(
+        firstLine.match(
           /^❌ ပယ်ဖျက်မည် - ID: (.+)$/
         );
 
@@ -323,11 +544,16 @@ export function registerAdminHandlers(
          * The admin's reason message replies to the
          * rejection prompt.
          *
-         * The rejection prompt itself replies to the
+         * The rejection prompt replies to the
          * original control message.
          *
-         * We need that original control message ID so
-         * we can replace its Approve/Reject buttons.
+         * Therefore:
+         *
+         * reason message
+         *      ↓
+         * rejection prompt
+         *      ↓
+         * control message
          */
 
         const rejectionPromptData =
@@ -345,18 +571,16 @@ export function registerAdminHandlers(
         if (
           controlMessageId === undefined
         ) {
+
           console.error(
             '❌ Could not find control message ID for rejection.'
           );
 
           /*
-           * IMPORTANT:
+           * The database rejection already succeeded.
            *
-           * Do NOT silently return.
-           *
-           * The listing has already been rejected.
-           * Tell the admin what happened even if we
-           * couldn't update the original control message.
+           * Do not silently hide the success from
+           * the admin.
            */
 
           await ctx.reply(
@@ -393,10 +617,9 @@ export function registerAdminHandlers(
           );
 
           /*
-           * The database rejection succeeded.
-           * Only the Telegram UI update failed.
+           * Database rejection succeeded.
            *
-           * Still tell the admin the rejection succeeded.
+           * Only the Telegram UI update failed.
            */
 
           await ctx.reply(
@@ -423,3 +646,4 @@ export function registerAdminHandlers(
     }
   );
 }
+
