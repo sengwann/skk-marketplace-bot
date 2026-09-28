@@ -1,6 +1,6 @@
-import { SettingRepository } from '../db/setting.repository';
+import { SettingRepository } from "../db/setting.repository";
 
-const RULES_KEY = 'MARKETPLACE_RULES';
+const RULES_KEY = "MARKETPLACE_RULES";
 
 const DEFAULT_RULES = `📜 စည်းကမ်းချက်များ
 
@@ -11,25 +11,19 @@ const DEFAULT_RULES = `📜 စည်းကမ်းချက်များ
 ၅။ Bot အသုံးပြုမှုနှင့် ပတ်သက်၍ မမှန်ကန်သော အချက်အလက်များ တင်ခြင်းမပြုရ။`;
 
 export class SettingService {
-  private cachedRules: string | null = null;
-
   async getRules(): Promise<string> {
-    if (this.cachedRules) {
-      return this.cachedRules;
-    }
     const dbRules = await SettingRepository.get(RULES_KEY);
+
     if (!dbRules) {
       await SettingRepository.set(RULES_KEY, DEFAULT_RULES);
-      this.cachedRules = DEFAULT_RULES;
+
       return DEFAULT_RULES;
     }
-    this.cachedRules = dbRules;
+
     return dbRules;
   }
 
   async updateRules(newRules: string): Promise<string> {
-    const updated = await SettingRepository.set(RULES_KEY, newRules);
-    this.cachedRules = updated; // Invalidate and update cache
-    return updated;
+    return SettingRepository.set(RULES_KEY, newRules);
   }
 }

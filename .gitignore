@@ -1,10 +1,20 @@
 node_modules/
+
 dist/
+
 .env
+.env.*
+!.env.example
+
+src/generated/prisma/
+
+coverage/
+
 *.log
+
 *.db
 *.db-shm
 *.db-wal
-/data/
 *.sqlite
 
+.next/

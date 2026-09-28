@@ -1,10 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "esm"
 }
 
 datasource db {
   provider = "postgresql"
 }
+
 
 enum ListingStatus {
   PENDING
@@ -36,7 +39,8 @@ model Listing {
   availability     ListingAvailability @default(AVAILABLE)
   rejectionReason  String?             @map("rejection_reason")
   channelMessageId BigInt?             @map("channel_message_id")
-
+  submissionKey String? @unique @map("submission_key")
+  
   originalData     Json?               @map("original_data")
 
   createdAt         DateTime            @default(now()) @map("created_at")
@@ -46,6 +50,14 @@ model Listing {
   @@index([sellerTelegramId])
   @@index([createdAt])
   @@map("listings")
+}
+
+model TelegramSession {
+  key       String   @id
+  session   Json
+  expiresAt DateTime? @map("expires_at")
+
+  @@map("telegram_sessions")
 }
 
 model AppSetting {

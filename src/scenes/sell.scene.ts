@@ -1,13 +1,10 @@
-import { Markup, Scenes } from 'telegraf';
-import {
-  MyContext,
-  Category,
-  Location,
-  Currency,
-} from '../types/listing';
-import { escapeHtml } from '../utils/htmlEscape';
+import { Markup, Scenes } from "telegraf";
+import { MyContext, Category, Location, Currency } from "../types/listing";
+import { escapeHtml } from "../utils/htmlEscape";
+import { randomUUID } from "node:crypto";
 
 interface WizardState {
+  submissionKey?: string;
   productName?: string;
   category?: Category;
   location?: Location;
@@ -31,10 +28,7 @@ const getWizState = (ctx: MyContext): WizardState =>
 const MAX_PHOTOS = 6;
 const MAX_NOTE_LENGTH = 500;
 
-const CURRENCY_VALUES: Currency[] = [
-  'MMK',
-  'THB'
-];
+const CURRENCY_VALUES: Currency[] = ["MMK", "THB"];
 
 // -------------------------------------------------------------
 // Labels
@@ -42,27 +36,23 @@ const CURRENCY_VALUES: Currency[] = [
 
 function getCategoryLabel(category?: Category): string {
   const labels: Record<Category, string> = {
-    [Category.ELECTRONICS]: '📱 အီလက်ထရောနစ်',
-    [Category.CLOTHING]: '👕 အဝတ်အထည်',
-    [Category.HOME]: '🏠 အိမ်သုံးပစ္စည်း',
-    [Category.VEHICLE]: '🚗 ယာဉ်မောင်းနှင်မှု',
-    [Category.OTHER]: '📦 အခြား',
+    [Category.ELECTRONICS]: "📱 အီလက်ထရောနစ်",
+    [Category.CLOTHING]: "👕 အဝတ်အထည်",
+    [Category.HOME]: "🏠 အိမ်သုံးပစ္စည်း",
+    [Category.VEHICLE]: "🚗 ယာဉ်မောင်းနှင်မှု",
+    [Category.OTHER]: "📦 အခြား",
   };
 
-  return category
-    ? labels[category] ?? category
-    : 'မရှိပါ';
+  return category ? (labels[category] ?? category) : "မရှိပါ";
 }
 
 function getLocationLabel(location?: Location): string {
   const labels: Record<Location, string> = {
-    [Location.SHWE_KOKKO]: '📍 ရွှေက္ကိုလ်',
-    [Location.MYAWADDY]: '📍 မြဝတီ',
+    [Location.SHWE_KOKKO]: "📍 ရွှေက္ကိုလ်",
+    [Location.MYAWADDY]: "📍 မြဝတီ",
   };
 
-  return location
-    ? labels[location] ?? location
-    : 'မရှိပါ';
+  return location ? (labels[location] ?? location) : "မရှိပါ";
 }
 
 // -------------------------------------------------------------
@@ -70,8 +60,8 @@ function getLocationLabel(location?: Location): string {
 // -------------------------------------------------------------
 
 function getTextMessage(ctx: MyContext): string {
-  if (!ctx.message || !('text' in ctx.message)) {
-    return '';
+  if (!ctx.message || !("text" in ctx.message)) {
+    return "";
   }
 
   return ctx.message.text.trim();
@@ -81,9 +71,7 @@ function parsePrice(text: string): {
   priceAmount: number;
   currency: Currency;
 } | null {
-  const match = text.match(
-    /^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/
-  );
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/);
 
   if (!match) {
     return null;
@@ -112,109 +100,40 @@ function parsePrice(text: string): {
 
 function categoryKeyboard() {
   return Markup.inlineKeyboard([
-    [
-      Markup.button.callback(
-        '📱 အီလက်ထရောနစ်',
-        Category.ELECTRONICS
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '👕 အဝတ်အထည်',
-        Category.CLOTHING
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '🏠 အိမ်သုံးပစ္စည်း',
-        Category.HOME
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '🚗 ယာဉ်မောင်းနှင်မှု',
-        Category.VEHICLE
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '📦 အခြား',
-        Category.OTHER
-      ),
-    ],
+    [Markup.button.callback("📱 အီလက်ထရောနစ်", Category.ELECTRONICS)],
+    [Markup.button.callback("👕 အဝတ်အထည်", Category.CLOTHING)],
+    [Markup.button.callback("🏠 အိမ်သုံးပစ္စည်း", Category.HOME)],
+    [Markup.button.callback("🚗 ယာဉ်မောင်းနှင်မှု", Category.VEHICLE)],
+    [Markup.button.callback("📦 အခြား", Category.OTHER)],
   ]);
 }
 
 function locationKeyboard() {
   return Markup.inlineKeyboard([
-    [
-      Markup.button.callback(
-        '📍 ရွှေက္ကိုလ်',
-        Location.SHWE_KOKKO
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '📍 မြဝတီ',
-        Location.MYAWADDY
-      ),
-    ],
+    [Markup.button.callback("📍 ရွှေက္ကိုလ်", Location.SHWE_KOKKO)],
+    [Markup.button.callback("📍 မြဝတီ", Location.MYAWADDY)],
   ]);
 }
 
 function reviewKeyboard() {
   return Markup.inlineKeyboard([
+    [Markup.button.callback("✏️ အမည်ပြင်မည်", "edit_product")],
     [
-      Markup.button.callback(
-        '✏️ အမည်ပြင်မည်',
-        'edit_product'
-      ),
+      Markup.button.callback("✏️ အမျိုးအစားပြင်မည်", "edit_category"),
+      Markup.button.callback("✏️ နေရာပြင်မည်", "edit_location"),
     ],
     [
-      Markup.button.callback(
-        '✏️ အမျိုးအစားပြင်မည်',
-        'edit_category'
-      ),
-      Markup.button.callback(
-        '✏️ နေရာပြင်မည်',
-        'edit_location'
-      ),
+      Markup.button.callback("✏️ ဈေးနှုန်းပြင်မည်", "edit_price"),
+      Markup.button.callback("✏️ အခြေအနေပြင်မည်", "edit_condition"),
     ],
     [
-      Markup.button.callback(
-        '✏️ ဈေးနှုန်းပြင်မည်',
-        'edit_price'
-      ),
-      Markup.button.callback(
-        '✏️ အခြေအနေပြင်မည်',
-        'edit_condition'
-      ),
+      Markup.button.callback("✏️ မှတ်ချက်ပြင်မည်", "edit_note"),
+      Markup.button.callback("✏️ ဆက်သွယ်ရန်ပြင်မည်", "edit_contact"),
     ],
+    [Markup.button.callback("📷 ဓာတ်ပုံပြင်မည်", "edit_photos")],
     [
-      Markup.button.callback(
-        '✏️ မှတ်ချက်ပြင်မည်',
-        'edit_note'
-      ),
-      Markup.button.callback(
-        '✏️ ဆက်သွယ်ရန်ပြင်မည်',
-        'edit_contact'
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '📷 ဓာတ်ပုံပြင်မည်',
-        'edit_photos'
-      ),
-    ],
-    [
-      Markup.button.callback(
-        '✅ တင်မည်',
-        'submit_listing'
-      ),
-      Markup.button.callback(
-        '❌ ပယ်ဖျက်မည်',
-        'cancel_listing'
-      ),
+      Markup.button.callback("✅ တင်မည်", "submit_listing"),
+      Markup.button.callback("❌ ပယ်ဖျက်မည်", "cancel_listing"),
     ],
   ]);
 }
@@ -224,37 +143,27 @@ function reviewKeyboard() {
 // -------------------------------------------------------------
 
 function getReviewMessage(state: WizardState): string {
-  const photoCount =
-    state.photoFileIds?.length ?? 0;
+  const photoCount = state.photoFileIds?.length ?? 0;
 
   return (
     `📋 <b>ပစ္စည်းအချက်အလက်များကို စစ်ဆေးပါ</b>\n\n` +
-
     `📦 <b>ပစ္စည်းအမည်:</b> ` +
     `${escapeHtml(state.productName)}\n` +
-
     `🏷️ <b>အမျိုးအစား:</b> ` +
     `${escapeHtml(getCategoryLabel(state.category))}\n` +
-
     `📍 <b>နေရာ:</b> ` +
     `${escapeHtml(getLocationLabel(state.location))}\n` +
-
     `💰 <b>ဈေးနှုန်း:</b> ` +
     `${escapeHtml(state.price?.priceAmount)} ` +
     `${escapeHtml(state.price?.currency)}\n` +
-
     `📦 <b>အခြေအနေ:</b> ` +
     `${escapeHtml(state.condition)}\n` +
-
     `📝 <b>မှတ်ချက်:</b> ` +
-    `${escapeHtml(state.note || 'မရှိပါ')}\n` +
-
+    `${escapeHtml(state.note || "မရှိပါ")}\n` +
     `📞 <b>ဆက်သွယ်ရန်:</b> ` +
     `${escapeHtml(state.contact)}\n` +
-
     `📷 <b>ဓာတ်ပုံ:</b> ` +
     `${photoCount} ပုံ\n\n` +
-
     `အချက်အလက်များ မှန်ကန်ပါက <b>တင်မည်</b> ကို နှိပ်ပါ။\n` +
     `ပြင်ဆင်လိုပါက အောက်ပါခလုတ်များမှ ရွေးချယ်ပါ။`
   );
@@ -262,14 +171,12 @@ function getReviewMessage(state: WizardState): string {
 
 async function showReview(ctx: MyContext) {
   const state = getWizState(ctx);
+  state.submissionKey ??= randomUUID();
 
-  await ctx.reply(
-    getReviewMessage(state),
-    {
-      parse_mode: 'HTML',
-      ...reviewKeyboard(),
-    }
-  );
+  await ctx.reply(getReviewMessage(state), {
+    parse_mode: "HTML",
+    ...reviewKeyboard(),
+  });
 }
 
 // -------------------------------------------------------------
@@ -277,21 +184,17 @@ async function showReview(ctx: MyContext) {
 // -------------------------------------------------------------
 
 async function addPhoto(ctx: MyContext): Promise<boolean> {
-  if (
-    !ctx.message ||
-    !('photo' in ctx.message)
-  ) {
+  if (!ctx.message || !("photo" in ctx.message)) {
     return false;
   }
 
   const state = getWizState(ctx);
+  state.submissionKey ??= randomUUID();
 
   state.photoFileIds ??= [];
 
   if (state.photoFileIds.length >= MAX_PHOTOS) {
-    await ctx.reply(
-      `⚠️ ဓာတ်ပုံ ${MAX_PHOTOS} ပုံထက် ပို၍ မတင်နိုင်ပါ။`
-    );
+    await ctx.reply(`⚠️ ဓာတ်ပုံ ${MAX_PHOTOS} ပုံထက် ပို၍ မတင်နိုင်ပါ။`);
 
     return true;
   }
@@ -300,16 +203,13 @@ async function addPhoto(ctx: MyContext): Promise<boolean> {
 
   // Telegram provides multiple sizes.
   // The last one is normally the largest.
-  const largestPhoto =
-    photos[photos.length - 1];
+  const largestPhoto = photos[photos.length - 1];
 
-  state.photoFileIds.push(
-    largestPhoto.file_id
-  );
+  state.photoFileIds.push(largestPhoto.file_id);
 
   await ctx.reply(
     `✅ ဓာတ်ပုံ လက်ခံရရှိပါပြီ။ ` +
-    `(${state.photoFileIds.length}/${MAX_PHOTOS})`
+      `(${state.photoFileIds.length}/${MAX_PHOTOS})`,
   );
 
   return true;
@@ -319,764 +219,660 @@ async function addPhoto(ctx: MyContext): Promise<boolean> {
 // SELL SCENE
 // =============================================================
 
-export const sellScene =
-  new Scenes.WizardScene<MyContext>(
-    'SELL_SCENE',
+export const sellScene = new Scenes.WizardScene<MyContext>(
+  "SELL_SCENE",
 
-    // ===========================================================
-// STEP 0
-// Start
-// ===========================================================
-async (ctx) => {
-  const state = getWizState(ctx);
+  // ===========================================================
+  // STEP 0
+  // Start
+  // ===========================================================
+  async (ctx) => {
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
 
-  // New listing = new state.
-  for (
-    const key of Object.keys(state) as Array<keyof WizardState>
-  ) {
-    delete state[key];
-  }
+    // New listing = new state.
+    for (const key of Object.keys(state) as Array<keyof WizardState>) {
+      delete state[key];
+    }
 
-  await ctx.reply(
-    '📦 ရောင်းချလိုသော ပစ္စည်း၏ အမည်ကို ရေးပြပေးပါ -'
-  );
+    await ctx.reply("📦 ရောင်းချလိုသော ပစ္စည်း၏ အမည်ကို ရေးပြပေးပါ -");
 
-  return ctx.wizard.next();
-},
+    return ctx.wizard.next();
+  },
 
-    // ===========================================================
-    // STEP 1
-    // Product name
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
+  // ===========================================================
+  // STEP 1
+  // Product name
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
 
-      if (!text) {
-        return ctx.reply(
-          '⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။'
-        );
-      }
+    if (!text) {
+      return ctx.reply("⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။");
+    }
 
-      const state = getWizState(ctx);
-      state.productName = text;
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
 
-      await ctx.reply(
-        '📂 ပစ္စည်း၏ အမျိုးအစားကို ရွေးချယ်ပါ -',
-        categoryKeyboard()
+    state.productName = text;
+
+    await ctx.reply(
+      "📂 ပစ္စည်း၏ အမျိုးအစားကို ရွေးချယ်ပါ -",
+      categoryKeyboard(),
+    );
+
+    return ctx.wizard.next();
+  },
+
+  // ===========================================================
+  // STEP 2
+  // Category
+  // ===========================================================
+  async (ctx) => {
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားခလုတ်တစ်ခုကို ရွေးချယ်ပါ။");
+    }
+
+    const category = ctx.callbackQuery.data as Category;
+
+    if (!Object.values(Category).includes(category)) {
+      return ctx.reply("⚠️ မမှန်ကန်သော အမျိုးအစား ဖြစ်ပါသည်။");
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+
+    state.category = category;
+
+    await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      "📍 ပစ္စည်းရှိသော မြို့နယ်ကို ရွေးချယ်ပါ -",
+      locationKeyboard(),
+    );
+
+    return ctx.wizard.next();
+  },
+
+  // ===========================================================
+  // STEP 3
+  // Location
+  // ===========================================================
+  async (ctx) => {
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်ခလုတ်တစ်ခုကို ရွေးချယ်ပါ။");
+    }
+
+    const location = ctx.callbackQuery.data as Location;
+
+    if (!Object.values(Location).includes(location)) {
+      return ctx.reply("⚠️ မမှန်ကန်သော မြို့နယ် ဖြစ်ပါသည်။");
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.location = location;
+
+    await ctx.answerCbQuery().catch(() => {});
+
+    await ctx.reply(
+      "💰 ဈေးနှုန်းနှင့် ငွေကြေးအမျိုးအစားကို ရေးပေးပါ -\n\n" +
+        "(ဥပမာ - 25000 MMK, 500 THB)",
+    );
+
+    return ctx.wizard.next();
+  },
+
+  // ===========================================================
+  // STEP 4
+  // Price
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
+    const price = parsePrice(text);
+
+    if (!price) {
+      return ctx.reply(
+        "⚠️ ဈေးနှုန်းနှင့် ငွေကြေးကို မှန်ကန်စွာ ရေးပေးပါ။\n" +
+          "(ဥပမာ - 20000 MMK)\n\n" +
+          "အသုံးပြုနိုင်သော ငွေကြေးများ: MMK, THB",
       );
+    }
 
-      return ctx.wizard.next();
-    },
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.price = price;
 
-    // ===========================================================
-    // STEP 2
-    // Category
-    // ===========================================================
-    async (ctx) => {
-      if (
-        !ctx.callbackQuery ||
-        !('data' in ctx.callbackQuery)
-      ) {
-        return ctx.reply(
-          '⚠️ ကျေးဇူးပြု၍ အမျိုးအစားခလုတ်တစ်ခုကို ရွေးချယ်ပါ။'
-        );
-      }
+    await ctx.reply(
+      "✨ ပစ္စည်း၏ လက်ရှိအခြေအနေကို ရေးပြပေးပါ -\n\n" +
+        "(ဥပမာ - 90% သန့်၊ အစုတ်အပြဲမရှိ၊ ဘူးပါမည်)",
+    );
 
-      const category =
-        ctx.callbackQuery.data as Category;
+    return ctx.wizard.next();
+  },
 
-      if (
-        !Object.values(Category).includes(category)
-      ) {
-        return ctx.reply(
-          '⚠️ မမှန်ကန်သော အမျိုးအစား ဖြစ်ပါသည်။'
-        );
-      }
+  // ===========================================================
+  // STEP 5
+  // Condition
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
 
-      const state = getWizState(ctx);
-      state.category = category;
+    if (!text) {
+      return ctx.reply("⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။");
+    }
 
-      await ctx.answerCbQuery().catch(() => {});
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.condition = text;
 
-      await ctx.reply(
-        '📍 ပစ္စည်းရှိသော မြို့နယ်ကို ရွေးချယ်ပါ -',
-        locationKeyboard()
-      );
-
-      return ctx.wizard.next();
-    },
-
-    // ===========================================================
-    // STEP 3
-    // Location
-    // ===========================================================
-    async (ctx) => {
-      if (
-        !ctx.callbackQuery ||
-        !('data' in ctx.callbackQuery)
-      ) {
-        return ctx.reply(
-          '⚠️ ကျေးဇူးပြု၍ မြို့နယ်ခလုတ်တစ်ခုကို ရွေးချယ်ပါ။'
-        );
-      }
-
-      const location =
-        ctx.callbackQuery.data as Location;
-
-      if (
-        !Object.values(Location).includes(location)
-      ) {
-        return ctx.reply(
-          '⚠️ မမှန်ကန်သော မြို့နယ် ဖြစ်ပါသည်။'
-        );
-      }
-
-      const state = getWizState(ctx);
-      state.location = location;
-
-      await ctx.answerCbQuery().catch(() => {});
-
-      await ctx.reply(
-        '💰 ဈေးနှုန်းနှင့် ငွေကြေးအမျိုးအစားကို ရေးပေးပါ -\n\n' +
-        '(ဥပမာ - 25000 MMK, 500 THB)'
-      );
-
-      return ctx.wizard.next();
-    },
-
-    // ===========================================================
-    // STEP 4
-    // Price
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-      const price = parsePrice(text);
-
-      if (!price) {
-        return ctx.reply(
-          '⚠️ ဈေးနှုန်းနှင့် ငွေကြေးကို မှန်ကန်စွာ ရေးပေးပါ။\n' +
-          '(ဥပမာ - 20000 MMK)\n\n' +
-          'အသုံးပြုနိုင်သော ငွေကြေးများ: MMK, THB'
-        );
-      }
-
-      const state = getWizState(ctx);
-      state.price = price;
-
-      await ctx.reply(
-        '✨ ပစ္စည်း၏ လက်ရှိအခြေအနေကို ရေးပြပေးပါ -\n\n' +
-        '(ဥပမာ - 90% သန့်၊ အစုတ်အပြဲမရှိ၊ ဘူးပါမည်)'
-      );
-
-      return ctx.wizard.next();
-    },
-
-    // ===========================================================
-    // STEP 5
-    // Condition
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-
-      if (!text) {
-        return ctx.reply(
-          '⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။'
-        );
-      }
-
-      const state = getWizState(ctx);
-      state.condition = text;
-
-      await ctx.reply(
-        '📝 ထပ်မံဖော်ပြလိုသော အချက်အလက်ရှိပါက ရေးပေးပါ။\n\n' +
-        'ဥပမာ - မူရင်းဘူးပါသည်၊ ဈေးနှုန်းညှိနှိုင်းနိုင်ပါသည်။\n\n' +
+    await ctx.reply(
+      "📝 ထပ်မံဖော်ပြလိုသော အချက်အလက်ရှိပါက ရေးပေးပါ။\n\n" +
+        "ဥပမာ - မူရင်းဘူးပါသည်၊ ဈေးနှုန်းညှိနှိုင်းနိုင်ပါသည်။\n\n" +
         'မထည့်လိုပါက "ကျော်မည် ⏭️" ခလုတ်ကို နှိပ်ပါ။',
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(
-              'ကျော်မည် ⏭️',
-              'skip_note'
-            ),
-          ],
-        ])
+      Markup.inlineKeyboard([
+        [Markup.button.callback("ကျော်မည် ⏭️", "skip_note")],
+      ]),
+    );
+
+    return ctx.wizard.next();
+  },
+
+  // ===========================================================
+  // STEP 6
+  // Note
+  // ===========================================================
+  async (ctx) => {
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+
+    // Skip note
+    if (
+      ctx.callbackQuery &&
+      "data" in ctx.callbackQuery &&
+      ctx.callbackQuery.data === "skip_note"
+    ) {
+      await ctx.answerCbQuery().catch(() => {});
+
+      state.note = null;
+
+      await ctx.reply(
+        "📞 ဝယ်ယူလိုသူများ ဆက်သွယ်ရန် ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username ကို ရေးပေးပါ -",
       );
 
       return ctx.wizard.next();
-    },
+    }
 
-    // ===========================================================
-    // STEP 6
-    // Note
-    // ===========================================================
-    async (ctx) => {
-      const state = getWizState(ctx);
+    const text = getTextMessage(ctx);
 
-      // Skip note
-      if (
-        ctx.callbackQuery &&
-        'data' in ctx.callbackQuery &&
-        ctx.callbackQuery.data === 'skip_note'
-      ) {
-        await ctx.answerCbQuery().catch(() => {});
-
-        state.note = null;
-
-        await ctx.reply(
-          '📞 ဝယ်ယူလိုသူများ ဆက်သွယ်ရန် ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username ကို ရေးပေးပါ -'
-        );
-
-        return ctx.wizard.next();
-      }
-
-      const text = getTextMessage(ctx);
-
-      if (!text) {
-        return ctx.reply(
-          '⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ သို့မဟုတ် "ကျော်မည် ⏭️" ကို နှိပ်ပါ။'
-        );
-      }
-
-      if (text.length > MAX_NOTE_LENGTH) {
-        return ctx.reply(
-          `⚠️ မှတ်ချက်သည် စာလုံး ${MAX_NOTE_LENGTH} ထက် မပိုရပါ။`
-        );
-      }
-
-      state.note = text;
-
-      await ctx.reply(
-        '📞 ဝယ်ယူလိုသူများ ဆက်သွယ်ရန် ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username ကို ရေးပေးပါ -'
+    if (!text) {
+      return ctx.reply(
+        '⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ သို့မဟုတ် "ကျော်မည် ⏭️" ကို နှိပ်ပါ။',
       );
+    }
 
-      return ctx.wizard.next();
-    },
+    if (text.length > MAX_NOTE_LENGTH) {
+      return ctx.reply(`⚠️ မှတ်ချက်သည် စာလုံး ${MAX_NOTE_LENGTH} ထက် မပိုရပါ။`);
+    }
 
-    // ===========================================================
-    // STEP 7
-    // Contact
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
+    state.note = text;
 
-      if (!text) {
-        return ctx.reply(
-          '⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။'
-        );
-      }
+    await ctx.reply(
+      "📞 ဝယ်ယူလိုသူများ ဆက်သွယ်ရန် ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username ကို ရေးပေးပါ -",
+    );
 
-      const state = getWizState(ctx);
+    return ctx.wizard.next();
+  },
 
-      state.contact = text;
-      state.photoFileIds = [];
+  // ===========================================================
+  // STEP 7
+  // Contact
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
 
-      await ctx.reply(
-        '📷 ပစ္စည်းဓာတ်ပုံ ပို့ပေးပါ။\n\n' +
+    if (!text) {
+      return ctx.reply("⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။");
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+
+    state.contact = text;
+    state.photoFileIds = [];
+
+    await ctx.reply(
+      "📷 ပစ္စည်းဓာတ်ပုံ ပို့ပေးပါ။\n\n" +
         `အနည်းဆုံး ၁ ပုံ၊ အများဆုံး ${MAX_PHOTOS} ပုံ ပို့နိုင်ပါသည်။\n` +
         'ဓာတ်ပုံများ ပို့ပြီးပါက "ပြီးပြီ ✅" ခလုတ်ကို နှိပ်ပါ။',
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(
-              'ပြီးပြီ ✅',
-              'photos_done'
-            ),
-          ],
-        ])
-      );
+      Markup.inlineKeyboard([
+        [Markup.button.callback("ပြီးပြီ ✅", "photos_done")],
+      ]),
+    );
 
-      return ctx.wizard.next();
-    },
+    return ctx.wizard.next();
+  },
 
-    // ===========================================================
-    // STEP 8
-    // Photos
-    // ===========================================================
-    async (ctx) => {
-      const state = getWizState(ctx);
+  // ===========================================================
+  // STEP 8
+  // Photos
+  // ===========================================================
+  async (ctx) => {
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
 
-      // Done button
-      if (
-        ctx.callbackQuery &&
-        'data' in ctx.callbackQuery &&
-        ctx.callbackQuery.data === 'photos_done'
-      ) {
-        await ctx.answerCbQuery().catch(() => {});
-
-        if (
-          !state.photoFileIds ||
-          state.photoFileIds.length === 0
-        ) {
-          return ctx.reply(
-            '⚠️ အနည်းဆုံး ဓာတ်ပုံ ၁ ပုံ ပို့ပေးရန် လိုအပ်ပါသည်။'
-          );
-        }
-
-        await showReview(ctx);
-
-        return ctx.wizard.next();
-      }
-
-      // Photo
-      if (await addPhoto(ctx)) {
-        return;
-      }
-
-      return ctx.reply(
-        '⚠️ ဓာတ်ပုံ ပို့ပေးပါ သို့မဟုတ် "ပြီးပြီ ✅" ခလုတ်ကို နှိပ်ပါ။'
-      );
-    },
-
-    // ===========================================================
-    // STEP 9
-    // Review
-    // ===========================================================
-    async (ctx) => {
-      if (
-        !ctx.callbackQuery ||
-        !('data' in ctx.callbackQuery)
-      ) {
-        return ctx.reply(
-          '⚠️ အောက်ပါခလုတ်များထဲမှ တစ်ခုကို ရွေးချယ်ပေးပါ။'
-        );
-      }
-
-      const action =
-        ctx.callbackQuery.data;
-
+    // Done button
+    if (
+      ctx.callbackQuery &&
+      "data" in ctx.callbackQuery &&
+      ctx.callbackQuery.data === "photos_done"
+    ) {
       await ctx.answerCbQuery().catch(() => {});
 
-      // ---------------------------------------------------------
-      // Submit
-      // ---------------------------------------------------------
-      if (action === 'submit_listing') {
-        const state = getWizState(ctx);
-
-        if (
-          !state.productName ||
-          !state.category ||
-          !state.location ||
-          !state.price ||
-          !state.condition ||
-          !state.contact ||
-          !state.photoFileIds?.length
-        ) {
-          return ctx.reply(
-            '⚠️ ပစ္စည်းအချက်အလက် မပြည့်စုံသေးပါ။'
-          );
-        }
-
-        try {
-          await ctx.reply(
-            '⌛ သင့်ပစ္စည်းကို စိစစ်ရန် ပို့ပေးနေပါသည်...'
-          );
-
-          const listing =
-            await ctx.listingService.createListing({
-              sellerTelegramId: ctx.from!.id,
-
-              sellerUsername:
-                ctx.from!.username || null,
-
-              sellerFirstName:
-                ctx.from!.first_name || null,
-
-              productName:
-                state.productName,
-
-              category:
-                state.category,
-
-              location:
-                state.location,
-
-              priceAmount:
-                state.price.priceAmount,
-
-              currency:
-                state.price.currency,
-
-              condition:
-                state.condition,
-
-              note:
-                state.note ?? null,
-
-              contact:
-                state.contact,
-
-              photoFileIds:
-                state.photoFileIds,
-            });
-
-          console.log(
-            '✅ Listing created:',
-            listing.id
-          );
-
-          await ctx.reply(
-            '✅ သင့်ပစ္စည်းကို အောင်မြင်စွာ တင်ပြီးပါပြီ။\n\n' +
-            'Admin များ စိစစ်ပြီးပါက Channel တွင် ဖော်ပြပေးပါမည်။'
-          );
-
-          return ctx.scene.leave();
-        } catch (error) {
-          console.error(
-            '❌ Failed to create listing:',
-            error
-          );
-
-          return ctx.reply(
-            '⚠️ စနစ်ပိုင်းဆိုင်ရာ အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။\n' +
-            'ကျေးဇူးပြု၍ နောက်ထပ်ကြိုးစားပါ။'
-          );
-        }
+      if (!state.photoFileIds || state.photoFileIds.length === 0) {
+        return ctx.reply("⚠️ အနည်းဆုံး ဓာတ်ပုံ ၁ ပုံ ပို့ပေးရန် လိုအပ်ပါသည်။");
       }
 
-      // ---------------------------------------------------------
-      // Cancel
-      // ---------------------------------------------------------
-      if (action === 'cancel_listing') {
+      await showReview(ctx);
+
+      return ctx.wizard.next();
+    }
+
+    // Photo
+    if (await addPhoto(ctx)) {
+      return;
+    }
+
+    return ctx.reply(
+      '⚠️ ဓာတ်ပုံ ပို့ပေးပါ သို့မဟုတ် "ပြီးပြီ ✅" ခလုတ်ကို နှိပ်ပါ။',
+    );
+  },
+
+  // ===========================================================
+  // STEP 9
+  // Review
+  // ===========================================================
+  async (ctx) => {
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      return ctx.reply("⚠️ အောက်ပါခလုတ်များထဲမှ တစ်ခုကို ရွေးချယ်ပေးပါ။");
+    }
+
+    const action = ctx.callbackQuery.data;
+
+    await ctx.answerCbQuery().catch(() => {});
+
+    // ---------------------------------------------------------
+    // Submit
+    // ---------------------------------------------------------
+    if (action === "submit_listing") {
+      const state = getWizState(ctx);
+      state.submissionKey ??= randomUUID();
+
+      if (
+        !state.productName ||
+        !state.category ||
+        !state.location ||
+        !state.price ||
+        !state.condition ||
+        !state.contact ||
+        !state.photoFileIds?.length
+      ) {
+        return ctx.reply("⚠️ ပစ္စည်းအချက်အလက် မပြည့်စုံသေးပါ။");
+      }
+
+      try {
+        await ctx.reply("⌛ သင့်ပစ္စည်းကို စိစစ်ရန် ပို့ပေးနေပါသည်...");
+
+        const listing = await ctx.listingService.createListing({
+          submissionKey: state.submissionKey!,
+
+          sellerTelegramId: ctx.from!.id,
+
+          sellerUsername: ctx.from!.username || null,
+
+          sellerFirstName: ctx.from!.first_name || null,
+
+          productName: state.productName,
+
+          category: state.category,
+
+          location: state.location,
+
+          priceAmount: state.price.priceAmount,
+
+          currency: state.price.currency,
+
+          condition: state.condition,
+
+          note: state.note ?? null,
+
+          contact: state.contact,
+
+          photoFileIds: state.photoFileIds,
+        });
+
+        console.log("✅ Listing created:", listing.id);
+
         await ctx.reply(
-          '❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။'
+          "✅ သင့်ပစ္စည်းကို အောင်မြင်စွာ တင်ပြီးပါပြီ။\n\n" +
+            "Admin များ စိစစ်ပြီးပါက Channel တွင် ဖော်ပြပေးပါမည်။",
         );
 
         return ctx.scene.leave();
-      }
+      } catch (error) {
+        console.error("❌ Failed to create listing:", error);
 
-      // ---------------------------------------------------------
-      // Edit product
-      // ---------------------------------------------------------
-      if (action === 'edit_product') {
-        await ctx.reply(
-          '📦 ပစ္စည်းအမည်အသစ်ကို ရေးပေးပါ -'
+        return ctx.reply(
+          "⚠️ စနစ်ပိုင်းဆိုင်ရာ အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။\n" +
+            "ကျေးဇူးပြု၍ နောက်ထပ်ကြိုးစားပါ။",
         );
-
-        return ctx.wizard.selectStep(10);
       }
+    }
 
-      // ---------------------------------------------------------
-      // Edit category
-      // ---------------------------------------------------------
-      if (action === 'edit_category') {
-        await ctx.reply(
-          '📂 ပစ္စည်း၏ အမျိုးအစားအသစ်ကို ရွေးချယ်ပါ -',
-          categoryKeyboard()
-        );
+    // ---------------------------------------------------------
+    // Cancel
+    // ---------------------------------------------------------
+    if (action === "cancel_listing") {
+      await ctx.reply("❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။");
 
-        return ctx.wizard.selectStep(11);
-      }
+      return ctx.scene.leave();
+    }
 
-      // ---------------------------------------------------------
-      // Edit location
-      // ---------------------------------------------------------
-      if (action === 'edit_location') {
-        await ctx.reply(
-          '📍 ပစ္စည်းရှိသော မြို့နယ်အသစ်ကို ရွေးချယ်ပါ -',
-          locationKeyboard()
-        );
+    // ---------------------------------------------------------
+    // Edit product
+    // ---------------------------------------------------------
+    if (action === "edit_product") {
+      await ctx.reply("📦 ပစ္စည်းအမည်အသစ်ကို ရေးပေးပါ -");
 
-        return ctx.wizard.selectStep(12);
-      }
+      return ctx.wizard.selectStep(10);
+    }
 
-      // ---------------------------------------------------------
-      // Edit price
-      // ---------------------------------------------------------
-      if (action === 'edit_price') {
-        await ctx.reply(
-          '💰 ဈေးနှုန်းနှင့် ငွေကြေးအမျိုးအစားအသစ်ကို ရေးပေးပါ -\n\n' +
-          '(ဥပမာ - 25000 MMK, 500 THB)'
-        );
+    // ---------------------------------------------------------
+    // Edit category
+    // ---------------------------------------------------------
+    if (action === "edit_category") {
+      await ctx.reply(
+        "📂 ပစ္စည်း၏ အမျိုးအစားအသစ်ကို ရွေးချယ်ပါ -",
+        categoryKeyboard(),
+      );
 
-        return ctx.wizard.selectStep(13);
-      }
+      return ctx.wizard.selectStep(11);
+    }
 
-      // ---------------------------------------------------------
-      // Edit condition
-      // ---------------------------------------------------------
-      if (action === 'edit_condition') {
-        await ctx.reply(
-          '✨ ပစ္စည်း၏ လက်ရှိအခြေအနေအသစ်ကို ရေးပေးပါ -'
-        );
+    // ---------------------------------------------------------
+    // Edit location
+    // ---------------------------------------------------------
+    if (action === "edit_location") {
+      await ctx.reply(
+        "📍 ပစ္စည်းရှိသော မြို့နယ်အသစ်ကို ရွေးချယ်ပါ -",
+        locationKeyboard(),
+      );
 
-        return ctx.wizard.selectStep(14);
-      }
+      return ctx.wizard.selectStep(12);
+    }
 
-      // ---------------------------------------------------------
-      // Edit note
-      // ---------------------------------------------------------
-      if (action === 'edit_note') {
-        await ctx.reply(
-          '📝 မှတ်ချက်အသစ်ကို ရေးပေးပါ။\n\n' +
-          'မှတ်ချက်မထည့်လိုပါက "မရှိပါ" ဟု ရေးပါ။'
-        );
+    // ---------------------------------------------------------
+    // Edit price
+    // ---------------------------------------------------------
+    if (action === "edit_price") {
+      await ctx.reply(
+        "💰 ဈေးနှုန်းနှင့် ငွေကြေးအမျိုးအစားအသစ်ကို ရေးပေးပါ -\n\n" +
+          "(ဥပမာ - 25000 MMK, 500 THB)",
+      );
 
-        return ctx.wizard.selectStep(15);
-      }
+      return ctx.wizard.selectStep(13);
+    }
 
-      // ---------------------------------------------------------
-      // Edit contact
-      // ---------------------------------------------------------
-      if (action === 'edit_contact') {
-        await ctx.reply(
-          '📞 ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username အသစ်ကို ရေးပေးပါ -'
-        );
+    // ---------------------------------------------------------
+    // Edit condition
+    // ---------------------------------------------------------
+    if (action === "edit_condition") {
+      await ctx.reply("✨ ပစ္စည်း၏ လက်ရှိအခြေအနေအသစ်ကို ရေးပေးပါ -");
 
-        return ctx.wizard.selectStep(16);
-      }
+      return ctx.wizard.selectStep(14);
+    }
 
-      // ---------------------------------------------------------
-      // Edit photos
-      // ---------------------------------------------------------
-      if (action === 'edit_photos') {
-        const state = getWizState(ctx);
+    // ---------------------------------------------------------
+    // Edit note
+    // ---------------------------------------------------------
+    if (action === "edit_note") {
+      await ctx.reply(
+        "📝 မှတ်ချက်အသစ်ကို ရေးပေးပါ။\n\n" +
+          'မှတ်ချက်မထည့်လိုပါက "မရှိပါ" ဟု ရေးပါ။',
+      );
 
-        state.photoFileIds = [];
+      return ctx.wizard.selectStep(15);
+    }
 
-        await ctx.reply(
-          '📷 ဓာတ်ပုံအသစ်များ ပို့ပေးပါ။\n\n' +
+    // ---------------------------------------------------------
+    // Edit contact
+    // ---------------------------------------------------------
+    if (action === "edit_contact") {
+      await ctx.reply(
+        "📞 ဖုန်းနံပါတ် သို့မဟုတ် Telegram Username အသစ်ကို ရေးပေးပါ -",
+      );
+
+      return ctx.wizard.selectStep(16);
+    }
+
+    // ---------------------------------------------------------
+    // Edit photos
+    // ---------------------------------------------------------
+    if (action === "edit_photos") {
+      const state = getWizState(ctx);
+      state.submissionKey ??= randomUUID();
+
+      state.photoFileIds = [];
+
+      await ctx.reply(
+        "📷 ဓာတ်ပုံအသစ်များ ပို့ပေးပါ။\n\n" +
           `အနည်းဆုံး ၁ ပုံ၊ အများဆုံး ${MAX_PHOTOS} ပုံ ပို့နိုင်ပါသည်။\n` +
           'ဓာတ်ပုံများ ပို့ပြီးပါက "ဓာတ်ပုံပြီးပြီ ✅" ကို နှိပ်ပါ။',
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback(
-                'ဓာတ်ပုံပြီးပြီ ✅',
-                'edit_photos_done'
-              ),
-            ],
-          ])
-        );
-
-        return ctx.wizard.selectStep(17);
-      }
-
-      return ctx.reply(
-        '⚠️ မမှန်ကန်သော ရွေးချယ်မှု ဖြစ်ပါသည်။'
+        Markup.inlineKeyboard([
+          [Markup.button.callback("ဓာတ်ပုံပြီးပြီ ✅", "edit_photos_done")],
+        ]),
       );
-    },
 
-    // ===========================================================
-    // STEP 10
-    // Edit product
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
+      return ctx.wizard.selectStep(17);
+    }
 
-      if (!text) {
-        return ctx.reply(
-          '⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။'
-        );
-      }
+    return ctx.reply("⚠️ မမှန်ကန်သော ရွေးချယ်မှု ဖြစ်ပါသည်။");
+  },
 
-      const state = getWizState(ctx);
-      state.productName = text;
+  // ===========================================================
+  // STEP 10
+  // Edit product
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
 
-      await showReview(ctx);
+    if (!text) {
+      return ctx.reply("⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။");
+    }
 
-      return ctx.wizard.selectStep(9);
-    },
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.productName = text;
 
-    // ===========================================================
-    // STEP 11
-    // Edit category
-    // ===========================================================
-    async (ctx) => {
-      if (
-        !ctx.callbackQuery ||
-        !('data' in ctx.callbackQuery)
-      ) {
-        return ctx.reply(
-          '⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။'
-        );
-      }
+    await showReview(ctx);
 
-      const category =
-        ctx.callbackQuery.data as Category;
+    return ctx.wizard.selectStep(9);
+  },
 
-      if (
-        !Object.values(Category).includes(category)
-      ) {
-        return ctx.reply(
-          '⚠️ မမှန်ကန်သော အမျိုးအစား ဖြစ်ပါသည်။'
-        );
-      }
+  // ===========================================================
+  // STEP 11
+  // Edit category
+  // ===========================================================
+  async (ctx) => {
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။");
+    }
 
-      const state = getWizState(ctx);
-      state.category = category;
+    const category = ctx.callbackQuery.data as Category;
 
-      await ctx.answerCbQuery().catch(() => {});
+    if (!Object.values(Category).includes(category)) {
+      return ctx.reply("⚠️ မမှန်ကန်သော အမျိုးအစား ဖြစ်ပါသည်။");
+    }
 
-      await showReview(ctx);
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.category = category;
 
-      return ctx.wizard.selectStep(9);
-    },
+    await ctx.answerCbQuery().catch(() => {});
 
-    // ===========================================================
-    // STEP 12
-    // Edit location
-    // ===========================================================
-    async (ctx) => {
-      if (
-        !ctx.callbackQuery ||
-        !('data' in ctx.callbackQuery)
-      ) {
-        return ctx.reply(
-          '⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။'
-        );
-      }
+    await showReview(ctx);
 
-      const location =
-        ctx.callbackQuery.data as Location;
+    return ctx.wizard.selectStep(9);
+  },
 
-      if (
-        !Object.values(Location).includes(location)
-      ) {
-        return ctx.reply(
-          '⚠️ မမှန်ကန်သော မြို့နယ် ဖြစ်ပါသည်။'
-        );
-      }
+  // ===========================================================
+  // STEP 12
+  // Edit location
+  // ===========================================================
+  async (ctx) => {
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
+    }
 
-      const state = getWizState(ctx);
-      state.location = location;
+    const location = ctx.callbackQuery.data as Location;
 
-      await ctx.answerCbQuery().catch(() => {});
+    if (!Object.values(Location).includes(location)) {
+      return ctx.reply("⚠️ မမှန်ကန်သော မြို့နယ် ဖြစ်ပါသည်။");
+    }
 
-      await showReview(ctx);
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.location = location;
 
-      return ctx.wizard.selectStep(9);
-    },
+    await ctx.answerCbQuery().catch(() => {});
 
-    // ===========================================================
-    // STEP 13
-    // Edit price
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-      const price = parsePrice(text);
+    await showReview(ctx);
 
-      if (!price) {
-        return ctx.reply(
-          '⚠️ ဈေးနှုန်းနှင့် ငွေကြေးကို မှန်ကန်စွာ ရေးပေးပါ။\n' +
-          '(ဥပမာ - 20000 MMK)\n\n' +
-          'အသုံးပြုနိုင်သော ငွေကြေးများ: MMK, THB'
-        );
-      }
+    return ctx.wizard.selectStep(9);
+  },
 
-      const state = getWizState(ctx);
-      state.price = price;
+  // ===========================================================
+  // STEP 13
+  // Edit price
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
+    const price = parsePrice(text);
 
-      await showReview(ctx);
-
-      return ctx.wizard.selectStep(9);
-    },
-
-    // ===========================================================
-    // STEP 14
-    // Edit condition
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-
-      if (!text) {
-        return ctx.reply(
-          '⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။'
-        );
-      }
-
-      const state = getWizState(ctx);
-      state.condition = text;
-
-      await showReview(ctx);
-
-      return ctx.wizard.selectStep(9);
-    },
-
-    // ===========================================================
-    // STEP 15
-    // Edit note
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-
-      if (!text) {
-        return ctx.reply(
-          '⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ။'
-        );
-      }
-
-      if (text.length > MAX_NOTE_LENGTH) {
-        return ctx.reply(
-          `⚠️ မှတ်ချက်သည် စာလုံး ${MAX_NOTE_LENGTH} ထက် မပိုရပါ။`
-        );
-      }
-
-      const state = getWizState(ctx);
-
-      state.note =
-        text === 'မရှိပါ'
-          ? null
-          : text;
-
-      await showReview(ctx);
-
-      return ctx.wizard.selectStep(9);
-    },
-
-    // ===========================================================
-    // STEP 16
-    // Edit contact
-    // ===========================================================
-    async (ctx) => {
-      const text = getTextMessage(ctx);
-
-      if (!text) {
-        return ctx.reply(
-          '⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။'
-        );
-      }
-
-      const state = getWizState(ctx);
-      state.contact = text;
-
-      await showReview(ctx);
-
-      return ctx.wizard.selectStep(9);
-    },
-
-    // ===========================================================
-    // STEP 17
-    // Edit photos
-    // ===========================================================
-    async (ctx) => {
-      const state = getWizState(ctx);
-
-      // Done
-      if (
-        ctx.callbackQuery &&
-        'data' in ctx.callbackQuery &&
-        ctx.callbackQuery.data === 'edit_photos_done'
-      ) {
-        await ctx.answerCbQuery().catch(() => {});
-
-        if (
-          !state.photoFileIds ||
-          state.photoFileIds.length === 0
-        ) {
-          return ctx.reply(
-            '⚠️ အနည်းဆုံး ဓာတ်ပုံ ၁ ပုံ ပို့ပေးရန် လိုအပ်ပါသည်။'
-          );
-        }
-
-        await showReview(ctx);
-
-        return ctx.wizard.selectStep(9);
-      }
-
-      // Photo
-      if (await addPhoto(ctx)) {
-        return;
-      }
-
+    if (!price) {
       return ctx.reply(
-        '⚠️ ဓာတ်ပုံ ပို့ပေးပါ သို့မဟုတ် "ဓာတ်ပုံပြီးပြီ ✅" ကို နှိပ်ပါ။'
+        "⚠️ ဈေးနှုန်းနှင့် ငွေကြေးကို မှန်ကန်စွာ ရေးပေးပါ။\n" +
+          "(ဥပမာ - 20000 MMK)\n\n" +
+          "အသုံးပြုနိုင်သော ငွေကြေးများ: MMK, THB",
       );
     }
-  );
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.price = price;
+
+    await showReview(ctx);
+
+    return ctx.wizard.selectStep(9);
+  },
+
+  // ===========================================================
+  // STEP 14
+  // Edit condition
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
+
+    if (!text) {
+      return ctx.reply("⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.condition = text;
+
+    await showReview(ctx);
+
+    return ctx.wizard.selectStep(9);
+  },
+
+  // ===========================================================
+  // STEP 15
+  // Edit note
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
+
+    if (!text) {
+      return ctx.reply("⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_NOTE_LENGTH) {
+      return ctx.reply(`⚠️ မှတ်ချက်သည် စာလုံး ${MAX_NOTE_LENGTH} ထက် မပိုရပါ။`);
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+
+    state.note = text === "မရှိပါ" ? null : text;
+
+    await showReview(ctx);
+
+    return ctx.wizard.selectStep(9);
+  },
+
+  // ===========================================================
+  // STEP 16
+  // Edit contact
+  // ===========================================================
+  async (ctx) => {
+    const text = getTextMessage(ctx);
+
+    if (!text) {
+      return ctx.reply("⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။");
+    }
+
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+    state.contact = text;
+
+    await showReview(ctx);
+
+    return ctx.wizard.selectStep(9);
+  },
+
+  // ===========================================================
+  // STEP 17
+  // Edit photos
+  // ===========================================================
+  async (ctx) => {
+    const state = getWizState(ctx);
+    state.submissionKey ??= randomUUID();
+
+    // Done
+    if (
+      ctx.callbackQuery &&
+      "data" in ctx.callbackQuery &&
+      ctx.callbackQuery.data === "edit_photos_done"
+    ) {
+      await ctx.answerCbQuery().catch(() => {});
+
+      if (!state.photoFileIds || state.photoFileIds.length === 0) {
+        return ctx.reply("⚠️ အနည်းဆုံး ဓာတ်ပုံ ၁ ပုံ ပို့ပေးရန် လိုအပ်ပါသည်။");
+      }
+
+      await showReview(ctx);
+
+      return ctx.wizard.selectStep(9);
+    }
+
+    // Photo
+    if (await addPhoto(ctx)) {
+      return;
+    }
+
+    return ctx.reply(
+      '⚠️ ဓာတ်ပုံ ပို့ပေးပါ သို့မဟုတ် "ဓာတ်ပုံပြီးပြီ ✅" ကို နှိပ်ပါ။',
+    );
+  },
+);

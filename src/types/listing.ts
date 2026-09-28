@@ -1,42 +1,41 @@
-
-import { Context, Scenes } from 'telegraf';
-import { ListingService } from '../services/listing.service';
-import { SettingService } from '../services/setting.service';
+import { Context, Scenes } from "telegraf";
+import { ListingService } from "../services/listing.service";
+import { SettingService } from "../services/setting.service";
 
 // ============================================================
 // Enums
 // ============================================================
 
 export enum ListingStatus {
-  PENDING = 'PENDING',
-  APPROVING = 'APPROVING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
+  PENDING = "PENDING",
+  APPROVING = "APPROVING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
 }
 
 export enum ListingAvailability {
-  AVAILABLE = 'AVAILABLE',
-  SOLD_OUT = 'SOLD_OUT',
+  AVAILABLE = "AVAILABLE",
+  SOLD_OUT = "SOLD_OUT",
 }
 
 export enum Category {
-  ELECTRONICS = 'ELECTRONICS',
-  CLOTHING = 'CLOTHING',
-  HOME = 'HOME',
-  VEHICLE = 'VEHICLE',
-  OTHER = 'OTHER',
+  ELECTRONICS = "ELECTRONICS",
+  CLOTHING = "CLOTHING",
+  HOME = "HOME",
+  VEHICLE = "VEHICLE",
+  OTHER = "OTHER",
 }
 
 export enum Location {
-  SHWE_KOKKO = 'SHWE_KOKKO',
-  MYAWADDY = 'MYAWADDY',
+  SHWE_KOKKO = "SHWE_KOKKO",
+  MYAWADDY = "MYAWADDY",
 }
 
 // ============================================================
 // Value types
 // ============================================================
 
-export type Currency = 'MMK' | 'THB';
+export type Currency = "MMK" | "THB";
 
 export interface Price {
   priceAmount: number;
@@ -81,11 +80,11 @@ export interface Listing {
 // ============================================================
 
 export type AdminEditField =
-  | 'productName'
-  | 'priceAmount'
-  | 'condition'
-  | 'note'
-  | 'contact';
+  | "productName"
+  | "priceAmount"
+  | "condition"
+  | "note"
+  | "contact";
 
 // ============================================================
 // Admin edit session
@@ -128,11 +127,12 @@ export interface AdminEditSessionData {
 // Wizard session
 // ============================================================
 
-export interface WizardSessionData
-  extends Scenes.WizardSessionData {
+export interface WizardSessionData extends Scenes.WizardSessionData {
   productName?: string;
 
   category?: Category;
+
+  submissionKey?: string;
 
   location?: Location;
 
@@ -156,20 +156,16 @@ export interface WizardSessionData
 // So we explicitly add adminEdit to the session type here.
 // ============================================================
 
-export type MyWizardSession =
-  Scenes.WizardSession<WizardSessionData> & {
-    adminEdit?: AdminEditSessionData;
-  };
+export type MyWizardSession = Scenes.WizardSession<WizardSessionData> & {
+  adminEdit?: AdminEditSessionData;
+};
 
 // ============================================================
 // Telegram context
 // ============================================================
 
 export interface MyContext extends Context {
-  scene: Scenes.SceneContextScene<
-    MyContext,
-    WizardSessionData
-  >;
+  scene: Scenes.SceneContextScene<MyContext, WizardSessionData>;
 
   session: MyWizardSession;
 

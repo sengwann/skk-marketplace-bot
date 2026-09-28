@@ -1,27 +1,27 @@
-
 import {
   ListingAvailability,
   ListingStatus,
   Category,
   Currency,
   Location,
-} from '../types/listing';
+} from "../types/listing";
 
 import {
   ListingRepository,
   CreateListingRepositoryInput,
   UpdatePendingListingInput,
-} from '../db/listing.repository';
+} from "../db/listing.repository";
 
-import {
-  TelegramService,
-} from './telegram.service';
+import { TelegramService } from "./telegram.service";
+import { listingInputSchema } from "../validators/listing.validator";
 
 // ============================================================
 // Create listing input
 // ============================================================
 
 export interface CreateListingInput {
+  submissionKey: string;
+
   sellerTelegramId: number;
 
   sellerUsername?: string | null;
@@ -46,17 +46,13 @@ export interface CreateListingInput {
 // ============================================================
 
 export class ListingService {
-  constructor(
-    private telegramService: TelegramService
-  ) {}
+  constructor(private telegramService: TelegramService) {}
 
   // ==========================================================
   // Get listing
   // ==========================================================
 
-  async getListing(
-    id: string
-  ) {
+  async getListing(id: string) {
     return ListingRepository.findById(id);
   }
 
@@ -64,98 +60,84 @@ export class ListingService {
   // Update pending listing
   // ==========================================================
 
-  async updatePendingListing(
-    id: string,
-    data: UpdatePendingListingInput
-  ) {
-    const listing =
-      await ListingRepository.findById(id);
+  async updatePendingListing(id: string, data: UpdatePendingListingInput) {
+    const listing = await ListingRepository.findById(id);
 
     if (!listing) {
-      throw new Error(
-        'Listing not found.'
-      );
+      throw new Error("Listing not found.");
     }
 
-    if (
-      listing.status !==
-      ListingStatus.PENDING
-    ) {
-      throw new Error(
-        'Only pending listings can be edited.'
-      );
+    if (listing.status !== ListingStatus.PENDING) {
+      throw new Error("Only pending listings can be edited.");
     }
 
-    return ListingRepository.updatePendingListing(
-      id,
-      data
-    );
+    return ListingRepository.updatePendingListing(id, data);
   }
 
   // ==========================================================
   // Create listing
   // ==========================================================
 
-  async createListing(
-    data: CreateListingInput
-  ) {
-    const repositoryData:
-      CreateListingRepositoryInput = {
-      sellerTelegramId:
-        data.sellerTelegramId,
+  async createListing(data: CreateListingInput) {
+    const repositoryData: CreateListingRepositoryInput = {
+      submissionKey: data.submissionKey,
 
-      sellerUsername:
-        data.sellerUsername ?? null,
+      sellerTelegramId: data.sellerTelegramId,
 
-      sellerFirstName:
-        data.sellerFirstName ?? null,
+      sellerUsername: data.sellerUsername ?? null,
 
-      productName:
-        data.productName,
+      sellerFirstName: data.sellerFirstName ?? null,
 
-      category:
-        data.category,
+      productName: data.productName,
 
-      location:
-        data.location,
+      category: data.category,
 
-      priceAmount:
-        data.priceAmount,
+      location: data.location,
 
-      currency:
-        data.currency,
+      priceAmount: data.priceAmount,
 
-      condition:
-        data.condition,
+      currency: data.currency,
 
-      note:
-        data.note ?? null,
+      condition: data.condition,
 
-      contact:
-        data.contact,
+      note: data.note ?? null,
 
-      photoFileIds:
-        data.photoFileIds,
+      contact: data.contact,
+
+      photoFileIds: data.photoFileIds,
     };
 
-    const listing =
-      await ListingRepository.create(
-        repositoryData
-      );
+    let listing: Awaited<ReturnType<typeof ListingRepository.create>>;
 
     try {
-      await this.telegramService.sendToAdminGroup(
-        listing
-      );
+      listing = await ListingRepository.create(repositoryData);
+    } catch (error: any) {
+      const target = error?.meta?.target;
+      const isSubmissionKeyConflict =
+        error?.code === "P2002" &&
+        (target === "submission_key" ||
+          (Array.isArray(target) && target.includes("submission_key")));
+
+      if (isSubmissionKeyConflict) {
+        const existing = await ListingRepository.findBySubmissionKey(
+          data.submissionKey,
+        );
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
+
+    // Now 'listing' is accessible here
+    try {
+      await this.telegramService.sendToAdminGroup(listing);
     } catch (error) {
       console.error(
-        '❌ Listing saved but failed to send to admin group:',
-        error
+        "❌ Listing saved but failed to send to admin group:",
+        error,
       );
-
-      throw new Error(
-        'Listing was saved, but sending to admin group failed.'
-      );
+      throw new Error("Listing was saved, but sending to admin group failed.");
     }
 
     return listing;
@@ -165,169 +147,163 @@ export class ListingService {
   // Approve listing
   // ==========================================================
 
-  async approveListing(
-    id: string
-  ) {
-    /*
-     * IMPORTANT:
-     *
-     * Fetch the listing immediately before claiming it.
-     *
-     * This means any saved admin edits are included.
-     */
+  async approveListing(id: string): Promise<{ message: string }> {
+    // ==========================================================
+    // Get listing
+    // ==========================================================
 
-    const listing =
-      await ListingRepository.findById(id);
+    const listing = await ListingRepository.findById(id);
 
     if (!listing) {
-      throw new Error(
-        'Listing not found.'
-      );
+      throw new Error("Listing not found.");
     }
 
-    const claimed =
-      await ListingRepository.claimForApproval(
-        id
-      );
+    // ==========================================================
+    // Claim listing
+    // ==========================================================
+
+    const claimed = await ListingRepository.claimForApproval(id);
 
     if (!claimed) {
       throw new Error(
-        'This listing has already been processed or is being processed.'
+        "This listing has already been processed or is being processed.",
       );
     }
 
-    let channelMessageId: number;
+    // ==========================================================
+    // Re-fetch after claim
+    // ==========================================================
+    //
+    // This gets the latest version, including any admin edits.
+    //
 
-    // ========================================================
-    // Publish to channel
-    // ========================================================
+    const claimedListing = await ListingRepository.findById(id);
+
+    if (!claimedListing) {
+      throw new Error("Listing could not be retrieved after approval claim.");
+    }
+
+    // ==========================================================
+    // Publish to Telegram
+    // ==========================================================
+
+    let telegramPublished = false;
 
     try {
       const channelMessage =
-        await this.telegramService.publishToChannel(
-          listing
-        );
+        await this.telegramService.publishToChannel(claimedListing);
 
-      channelMessageId =
-        channelMessage.message_id;
+      telegramPublished = true;
 
-    } catch (error) {
-      await ListingRepository
-        .rollbackToPending(id)
-        .catch((rollbackError) => {
-          console.error(
-            '❌ Failed to rollback listing to PENDING:',
-            rollbackError
-          );
-        });
+      // ========================================================
+      // Finalize approval in database
+      // ========================================================
 
-      throw error;
-    }
-
-    // ========================================================
-    // Finalize database approval
-    // ========================================================
-
-    try {
-      const approved =
-        await ListingRepository.approve(
-          id,
-          channelMessageId
-        );
+      const approved = await ListingRepository.approve(
+        id,
+        channelMessage.message_id,
+      );
 
       if (!approved) {
-        throw new Error(
-          'Listing could not be marked as approved.'
+        throw new Error("Listing could not be marked as approved.");
+      }
+
+      // ========================================================
+      // Notify seller
+      // ========================================================
+
+      try {
+        await this.telegramService.notifySellerApproved(claimedListing);
+      } catch (error) {
+        /*
+         * Approval already succeeded.
+         *
+         * Do NOT undo approval if seller notification fails.
+         */
+
+        console.error(
+          "❌ Listing approved and published, but failed to notify seller:",
+          {
+            listingId: id,
+            sellerTelegramId: claimedListing.sellerTelegramId,
+            error,
+          },
         );
       }
 
+      // ========================================================
+      // Return result to admin handler
+      // ========================================================
+
+      return {
+        message:
+          `✅ <b>အတည်ပြုပြီးပါပြီ</b>\n\n` +
+          `ပစ္စည်း: ${claimedListing.productName}\n` +
+          `ဈေးနှုန်း: ${claimedListing.priceAmount} ${claimedListing.currency}\n` +
+          `📢 Channel တွင် ဖော်ပြပြီးပါပြီ။`,
+      };
     } catch (error) {
-      console.error(
-        '❌ Telegram published the listing, but database finalization failed:',
-        {
-          listingId: id,
-          channelMessageId,
-          error,
+      // ========================================================
+      // Telegram failed
+      // ========================================================
+      //
+      // Nothing was published, so it is safe to return
+      // the listing to PENDING.
+      //
+
+      if (!telegramPublished) {
+        try {
+          await ListingRepository.rollbackToPending(id);
+        } catch (rollbackError) {
+          console.error(
+            `❌ Failed to rollback listing ${id} to PENDING:`,
+            rollbackError,
+          );
         }
-      );
+      } else {
+        // ======================================================
+        // Telegram succeeded, DB finalization failed
+        // ======================================================
+        //
+        // IMPORTANT:
+        // Do NOT rollback to PENDING here.
+        //
+        // The Telegram post already exists. Returning to PENDING
+        // could allow another approval and create a duplicate post.
+        //
 
-      throw new Error(
-        'Listing was published to the channel, but the database could not finalize the approval.'
-      );
-    }
-
-    // ========================================================
-    // Notify seller
-    // ========================================================
-
-    try {
-      await this.telegramService.notifySellerApproved(
-        listing
-      );
-
-    } catch (error) {
-      /*
-       * Approval already succeeded.
-       *
-       * Seller notification failure must NOT undo
-       * the approval.
-       */
-
-      console.error(
-        '❌ Listing approved and published, but failed to notify seller:',
-        {
-          listingId: id,
-          sellerTelegramId:
-            listing.sellerTelegramId,
+        console.error(
+          `⚠️ Telegram published but database approval failed for listing ${id}`,
           error,
-        }
-      );
-    }
+        );
+      }
 
-    return {
-      message:
-        `✅ <b>အတည်ပြုပြီးပါပြီ</b>\n\n` +
-        `ပစ္စည်း: ${listing.productName}\n` +
-        `ဈေးနှုန်း: ${listing.priceAmount} ${listing.currency}\n` +
-        `📢 Channel တွင် ဖော်ပြပြီးပါပြီ။`,
-    };
+      throw error;
+    }
   }
 
   // ==========================================================
   // Reject listing
   // ==========================================================
 
-  async rejectListing(
-    id: string,
-    reason: string
-  ) {
-    const cleanReason =
-      reason.trim();
+  async rejectListing(id: string, reason: string) {
+    const cleanReason = reason.trim();
 
     if (!cleanReason) {
-      throw new Error(
-        'Rejection reason is required.'
-      );
+      throw new Error("Rejection reason is required.");
     }
 
-    const listing =
-      await ListingRepository.findById(id);
+    const listing = await ListingRepository.findById(id);
 
     if (!listing) {
-      throw new Error(
-        'Listing not found.'
-      );
+      throw new Error("Listing not found.");
     }
 
-    const rejected =
-      await ListingRepository.reject(
-        id,
-        cleanReason
-      );
+    const rejected = await ListingRepository.reject(id, cleanReason);
 
     if (!rejected) {
       throw new Error(
-        'This listing has already been processed or is being processed.'
+        "This listing has already been processed or is being processed.",
       );
     }
 
@@ -336,11 +312,7 @@ export class ListingService {
     // ========================================================
 
     try {
-      await this.telegramService.notifySellerRejected(
-        listing,
-        cleanReason
-      );
-
+      await this.telegramService.notifySellerRejected(listing, cleanReason);
     } catch (error) {
       /*
        * Rejection already succeeded.
@@ -349,15 +321,11 @@ export class ListingService {
        * the rejection.
        */
 
-      console.error(
-        '❌ Listing rejected, but failed to notify seller:',
-        {
-          listingId: id,
-          sellerTelegramId:
-            listing.sellerTelegramId,
-          error,
-        }
-      );
+      console.error("❌ Listing rejected, but failed to notify seller:", {
+        listingId: id,
+        sellerTelegramId: listing.sellerTelegramId,
+        error,
+      });
     }
 
     return {
@@ -372,29 +340,21 @@ export class ListingService {
   // Mark as Sold Out
   // ==========================================================
 
-  async markAsSoldOut(
-    id: string
-  ) {
-    const listing =
-      await ListingRepository.updateAvailability(
-        id,
-        ListingAvailability.SOLD_OUT
-      );
+  async markAsSoldOut(id: string) {
+    const listing = await ListingRepository.updateAvailability(
+      id,
+      ListingAvailability.SOLD_OUT,
+    );
 
     if (
-      listing.status ===
-        ListingStatus.APPROVED &&
+      listing.status === ListingStatus.APPROVED &&
       listing.channelMessageId !== null
     ) {
-      await this.telegramService.updateChannelListing(
-        listing
-      );
+      await this.telegramService.updateChannelListing(listing);
     }
 
     return {
-      message:
-        `🔴 <b>Sold Out</b>\n\n` +
-        `ပစ္စည်း: ${listing.productName}`,
+      message: `🔴 <b>Sold Out</b>\n\n` + `ပစ္စည်း: ${listing.productName}`,
     };
   }
 
@@ -402,29 +362,21 @@ export class ListingService {
   // Mark as Available
   // ==========================================================
 
-  async markAsAvailable(
-    id: string
-  ) {
-    const listing =
-      await ListingRepository.updateAvailability(
-        id,
-        ListingAvailability.AVAILABLE
-      );
+  async markAsAvailable(id: string) {
+    const listing = await ListingRepository.updateAvailability(
+      id,
+      ListingAvailability.AVAILABLE,
+    );
 
     if (
-      listing.status ===
-        ListingStatus.APPROVED &&
+      listing.status === ListingStatus.APPROVED &&
       listing.channelMessageId !== null
     ) {
-      await this.telegramService.updateChannelListing(
-        listing
-      );
+      await this.telegramService.updateChannelListing(listing);
     }
 
     return {
-      message:
-        `🟢 <b>Available</b>\n\n` +
-        `ပစ္စည်း: ${listing.productName}`,
+      message: `🟢 <b>Available</b>\n\n` + `ပစ္စည်း: ${listing.productName}`,
     };
   }
 }
