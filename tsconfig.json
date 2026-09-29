@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-
     "module": "commonjs",
     "moduleResolution": "node",
     "lib": ["ES2023"],
@@ -14,7 +13,8 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "downlevelIteration": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
