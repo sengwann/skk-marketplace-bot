@@ -8,13 +8,13 @@
     "dev": "tsx watch src/bot.ts",
     "build": "prisma generate && tsc --noIncremental",
     "start": "node dist/bot.js",
-    "typecheck": "rm -f *.tsbuildinfo && tsc --noEmit",
+    "typecheck": "npx tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy"
   },
   "engines": {
-    "node": "22.x",
+    "node": ">=20.0.0",
     "npm": ">=10"
   },
   "dependencies": {
