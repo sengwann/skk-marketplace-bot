@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/bot.ts",
-    "build": "prisma generate && tsc --noIncremental",
+    "build": "prisma generate && tsc",
     "start": "node dist/bot.js",
-    "typecheck": "npx tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy"
