@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/bot.ts",
-    "build": "prisma generate && tsc",
+    "build": "prisma generate && tsc --noIncremental",
     "start": "node dist/bot.js",
     "typecheck": "rm -f *.tsbuildinfo && tsc --noEmit",
     "db:generate": "prisma generate",
