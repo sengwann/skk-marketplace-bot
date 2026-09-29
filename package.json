@@ -14,8 +14,7 @@
     "db:deploy": "prisma migrate deploy"
   },
   "engines": {
-    "node": "22.x",
-    "npm": "10.x"
+    "node": "22.22.0"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.0.0",
