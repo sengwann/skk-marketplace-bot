@@ -11,7 +11,10 @@ import {
   Currency,
 } from "../types/listing";
 
-import { isAuthorizedAdmin } from "../middleware/adminAuth";
+import {
+  isAuthorizedAdmin,
+  isAuthorizedAdminUser,
+} from "../middleware/adminAuth";
 
 import { ListingService } from "../services/listing.service";
 
@@ -347,14 +350,13 @@ export function registerAdminHandlers(
   // ==========================================================
 
   bot.command("setrules", async (ctx) => {
-    if (!isAuthorizedAdmin(ctx)) {
+    if (!isAuthorizedAdminUser(ctx)) {
       return ctx.reply(
         "⚠️ ဤ Command ကို အုပ်ထိန်းသူများသာ အသုံးပြုခွင့်ရှိပါသည်။",
       );
     }
 
     const commandText = ctx.message.text;
-
     const newRules = commandText.replace(/^\/setrules\s*/, "").trim();
 
     if (!newRules) {
