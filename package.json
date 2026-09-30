@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Telegram second-hand marketplace bot for Shwe Kokko and Myawaddy",
   "main": "dist/bot.js",
-  "type": "module",
   "scripts": {
     "dev": "tsx watch src/bot.ts",
     "build": "prisma generate && tsc",
