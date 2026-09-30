@@ -300,7 +300,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // ===========================================================
   async (ctx) => {
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
-      return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်ခလုတ်တစ်ခုကို ရွေးချယ်ပါ။");
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
     }
 
     const location = ctx.callbackQuery.data as Location;

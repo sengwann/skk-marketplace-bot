@@ -116,6 +116,18 @@ const sellHandler = (ctx: MyContext) => {
 
 bot.command("sell", sellHandler);
 
+const rulesHandler = async (ctx: MyContext) => {
+  const rulesText = await ctx.settingService.getRules();
+  await ctx.reply(
+    rulesText,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("🛍 ပစ္စည်းရောင်းမည်", "start_sell")],
+    ]),
+  );
+};
+
+bot.command("rules", rulesHandler);
+
 bot.command("cancel", async (ctx) => {
   if (ctx.scene.current) {
     await ctx.scene.leave();
@@ -163,7 +175,7 @@ bot.action("back_to_start", async (ctx) => {
 });
 
 // ============================================================
-// Admin
+// Admin Handlers
 // ============================================================
 
 registerAdminHandlers(bot, listingService, settingService);
@@ -177,7 +189,7 @@ bot.catch((err, ctx) => {
 
   ctx
     .reply(
-      "⚠️ စနစ်ပိုင်းဆိုင်ရာ အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။ ကျေးဇူးပြု၍ နောက်တစ်ကြိမ် ထပ်မံကြိုးစားပါ။",
+      "⚠️️ စနစ်ပိုင်းဆိုင်ရာ အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။ ကျေးဇူးပြု၍ နောက်တစ်ကြိမ် ထပ်မံကြိုးစားပါ။",
     )
     .catch(() => {});
 });
@@ -199,44 +211,28 @@ const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN || `http://localhost:${PORT}`;
 const WEBHOOK_URL = `${WEBHOOK_DOMAIN.replace(/\/$/, "")}${WEBHOOK_PATH}`;
 
 // ============================================================
-// Health Check
+// Health Checks
 // ============================================================
 
 app.get("/healthz", (_req, res) => {
-  res.status(200).json({
-    status: "ok",
-  });
+  res.status(200).json({ status: "ok" });
 });
-
-// ============================================================
-// Readiness Check
-// ============================================================
 
 app.get("/readyz", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-
-    res.status(200).json({
-      status: "ready",
-    });
+    res.status(200).json({ status: "ready" });
   } catch (error) {
     console.error("❌ Readiness check failed:", error);
-
-    res.status(503).json({
-      status: "not_ready",
-    });
+    res.status(503).json({ status: "not_ready" });
   }
 });
 
 // ============================================================
-// JSON Body Parser
+// JSON Body Parser & Webhook
 // ============================================================
 
 app.use(express.json());
-
-// ============================================================
-// Telegram Webhook
-// ============================================================
 
 app.use(
   bot.webhookCallback(WEBHOOK_PATH, {
@@ -248,29 +244,68 @@ app.use(
 // Start Server
 // ============================================================
 
-// IMPORTANT:
-// Store the return value from app.listen() in `server`.
-// This allows server.close() during graceful shutdown.
-
 const server = app.listen(PORT, async () => {
   console.log(`🌐 Health-check server running on port ${PORT}`);
 
   try {
     // Connect to PostgreSQL
     await prisma.$connect();
-
     console.log("✅ PostgreSQL Database connected successfully via Prisma");
 
     // Configure Telegram webhook
     await bot.telegram.setWebhook(WEBHOOK_URL, {
       secret_token: WEBHOOK_SECRET,
     });
-
     console.log(`✅ Webhook configured: ${WEBHOOK_URL}`);
+
+    // ----------------------------------------------------
+    // Command Menu Setup
+    // ----------------------------------------------------
+
+    // 1. Default menu for general users
+    await bot.telegram.setMyCommands([
+      { command: "start", description: "Start the bot" },
+      { command: "sell", description: "Post a new item" },
+      { command: "cancel", description: "Cancel active operation" },
+    ]);
+
+    // 2. Custom menu scoped exclusively for Admins
+    const adminIds = (
+      process.env.ADMIN_USER_IDS ||
+      process.env.ADMIN_IDS ||
+      process.env.ADMIN_ID ||
+      ""
+    )
+      .split(",")
+      .map((id) => Number(id.trim()))
+      .filter((id) => !isNaN(id) && id > 0);
+
+    for (const adminId of adminIds) {
+      try {
+        await bot.telegram.setMyCommands(
+          [
+            { command: "start", description: "Start the bot" },
+            { command: "sell", description: "Post a new item" },
+            { command: "cancel", description: "Cancel active operation" },
+            { command: "rules", description: "View rules" },
+            { command: "setrules", description: "⚙️ Update rules" },
+          ],
+          {
+            scope: { type: "chat", chat_id: adminId },
+          },
+        );
+      } catch (err) {
+        console.error(
+          `❌ Failed to set admin commands for ID ${adminId}:`,
+          err,
+        );
+      }
+    }
+
+    console.log("✅ Bot menu commands configured successfully.");
   } catch (err) {
     console.error("\n❌ FAILED TO START:", err);
 
-    // Close server if startup fails
     server.close(() => {
       process.exit(1);
     });
@@ -285,10 +320,8 @@ const stopBot = async (signal: string) => {
   console.log(`Received ${signal}. Shutting down...`);
 
   try {
-    // Stop accepting new Telegram updates
     bot.stop(signal);
 
-    // Close HTTP server
     await new Promise<void>((resolve) => {
       server.close(() => {
         console.log("✅ HTTP server closed.");
@@ -296,21 +329,15 @@ const stopBot = async (signal: string) => {
       });
     });
 
-    // Close database connection
     await closeDatabase();
 
     console.log("✅ Database connection closed.");
     console.log("✅ Shutdown complete.");
   } catch (error) {
     console.error("❌ Error during shutdown:", error);
-
     process.exitCode = 1;
   }
 };
-
-// ============================================================
-// Process Signals
-// ============================================================
 
 process.once("SIGINT", () => {
   void stopBot("SIGINT");
