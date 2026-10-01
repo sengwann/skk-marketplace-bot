@@ -179,14 +179,57 @@ bot.use((ctx, next) => {
 });
 
 // ============================================================
-// Commands (registered BEFORE stage so they intercept /start, /sell, /rules, /cancel)
+// Scene
+// ============================================================
+
+// ============================================================
+// Scene
+// ============================================================
+
+const stage = new Scenes.Stage<MyContext>([sellScene], {
+  ttl: 3600,
+});
+
+// ============================================================
+// Pre-stage command interceptor
+//
+// If the user sends one of the global commands while a scene
+// is active, clear the scene session first. The stage middleware
+// then sees no active scene and yields to the command handlers.
+// ============================================================
+
+const GLOBAL_COMMANDS = /^\/(start|sell|rules|cancel|help)(@\w+)?(\s|$)/;
+
+bot.use(async (ctx, next) => {
+  if (
+    ctx.message &&
+    "text" in ctx.message &&
+    typeof ctx.message.text === "string" &&
+    GLOBAL_COMMANDS.test(ctx.message.text)
+  ) {
+    const session = ctx.session as unknown as {
+      __scenes?: { current?: string; state?: unknown };
+    };
+
+    if (session.__scenes?.current) {
+      session.__scenes = { current: undefined, state: {} };
+    }
+  }
+
+  return next();
+});
+
+// ============================================================
+// Stage middleware
+// ============================================================
+
+bot.use(stage.middleware());
+
+// ============================================================
+// Commands (run after stage, but stage yields for the ones above)
 // ============================================================
 
 const startHandler = async (ctx: MyContext) => {
-  if (ctx.scene.current) {
-    await ctx.scene.leave();
-  }
-
   await ctx.reply(
     `မင်္ဂလာပါ။ ${config.channelName} bot မှ ကြိုဆိုပါတယ်။ 📦\n\nရွှေက္ကိုလ် နှင့် မြဝတီ မြို့နယ်အတွက် အထွေထွေ ရောင်းဝယ်မှု Bot တစ်ခု ဖြစ်ပါသည်။`,
     Markup.inlineKeyboard([
@@ -199,19 +242,12 @@ const startHandler = async (ctx: MyContext) => {
 bot.command("start", startHandler);
 
 const sellHandler = async (ctx: MyContext) => {
-  if (ctx.scene.current) {
-    await ctx.scene.leave();
-  }
   return ctx.scene.enter("SELL_SCENE");
 };
 
 bot.command("sell", sellHandler);
 
 const rulesHandler = async (ctx: MyContext) => {
-  if (ctx.scene.current) {
-    await ctx.scene.leave();
-  }
-
   const rulesText = await ctx.settingService.getRules();
   await ctx.reply(
     rulesText,
@@ -224,26 +260,11 @@ const rulesHandler = async (ctx: MyContext) => {
 bot.command("rules", rulesHandler);
 
 bot.command("cancel", async (ctx) => {
-  if (ctx.scene.current) {
-    await ctx.scene.leave();
-    await ctx.reply(
-      "❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။",
-      Markup.removeKeyboard(),
-    );
-  } else {
-    await ctx.reply("လက်ရှိတွင် ဖျက်သိမ်းရန် လုပ်ဆောင်ချက် မရှိပါ။");
-  }
+  await ctx.reply(
+    "❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။",
+    Markup.removeKeyboard(),
+  );
 });
-
-// ============================================================
-// Scene — must come AFTER commands
-// ============================================================
-
-const stage = new Scenes.Stage<MyContext>([sellScene], {
-  ttl: 3600,
-});
-
-bot.use(stage.middleware());
 
 bot.catch((err, ctx) => {
   logger.error(
