@@ -1,8 +1,21 @@
+import dotenv from "dotenv";
+dotenv.config();
+
+import * as Sentry from "@sentry/node";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || "development",
+  enabled: !!process.env.SENTRY_DSN,
+});
 import { Telegraf, Scenes, session, Markup } from "telegraf";
+import { startSessionCleanup } from "./services/session-cleanup.service";
+import { startAdminGroupRetry } from "./services/admin-group-retry.service";
+import rateLimit from "express-rate-limit";
 import express from "express";
 import type { Agent } from "http";
-import dotenv from "dotenv";
-
+import { logger } from "./utils/logger";
+import { telegrafThrottler } from "telegraf-throttler";
 import { config } from "./config";
 import { MyContext, MyWizardSession } from "./types/listing";
 import { sellScene } from "./scenes/sell.scene";
@@ -11,8 +24,6 @@ import { ListingService } from "./services/listing.service";
 import { SettingService } from "./services/setting.service";
 import { prisma, closeDatabase } from "./db/prisma";
 import { registerAdminHandlers } from "./handlers/admin.handler";
-
-dotenv.config();
 
 // ============================================================
 // Proxy
@@ -51,6 +62,9 @@ const bot = new Telegraf<MyContext>(
     : undefined,
 );
 
+const throttler = telegrafThrottler();
+bot.use(throttler);
+
 // ============================================================
 // Services
 // ============================================================
@@ -64,15 +78,95 @@ const settingService = new SettingService();
 // ============================================================
 
 bot.use((ctx, next) => {
-  console.log(`📨 Telegram update: ${ctx.updateType}`);
+  logger.debug(`📨 Telegram update: ${ctx.updateType}`);
 
   return next();
 });
 
 // Persistent/custom session type
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+const prismaSessionStore = {
+  async get(key: string) {
+    try {
+      const row = await prisma.telegramSession.findUnique({
+        where: { key },
+      });
+
+      if (!row) {
+        return undefined;
+      }
+
+      if (row.expiresAt && row.expiresAt < new Date()) {
+        await prisma.telegramSession
+          .delete({
+            where: { key },
+          })
+          .catch(() => {});
+
+        return undefined;
+      }
+
+      return row.session as MyWizardSession;
+    } catch (error) {
+      logger.error({ err: error }, "❌ Failed to read session");
+      return undefined;
+    }
+  },
+
+  async set(key: string, value: MyWizardSession) {
+    try {
+      const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+      const cleanValue = JSON.parse(
+        JSON.stringify(value ?? {}, (_key, val) =>
+          typeof val === "bigint" ? val.toString() : val,
+        ),
+      );
+
+      await prisma.telegramSession.upsert({
+        where: { key },
+        update: {
+          session: cleanValue,
+          expiresAt,
+        },
+        create: {
+          key,
+          session: cleanValue,
+          expiresAt,
+        },
+      });
+    } catch (error) {
+      logger.error({ err: error }, "❌ Failed to save session");
+    }
+  },
+
+  async delete(key: string) {
+    try {
+      await prisma.telegramSession.deleteMany({
+        where: { key },
+      });
+    } catch (error) {
+      logger.error({ err: error }, "❌ Failed to delete session");
+    }
+  },
+};
+
 bot.use(
   session<MyWizardSession, MyContext>({
+    getSessionKey: (ctx) => {
+      if (!ctx.chat) {
+        return undefined;
+      }
+
+      if (ctx.from) {
+        return `${ctx.chat.id}:${ctx.from.id}`;
+      }
+
+      return `${ctx.chat.id}`;
+    },
     defaultSession: () => ({}) as MyWizardSession,
+    store: prismaSessionStore,
   }),
 );
 
@@ -141,6 +235,15 @@ bot.command("cancel", async (ctx) => {
   }
 });
 
+bot.catch((err, ctx) => {
+  logger.error(
+    { err: err },
+    `Unhandled error for update ${ctx.updateType}:`,
+    err,
+  );
+  ctx.reply("An unexpected error occurred. Please try again.").catch(() => {});
+});
+
 // ============================================================
 // Callback Actions
 // ============================================================
@@ -185,7 +288,15 @@ registerAdminHandlers(bot, listingService, settingService);
 // ============================================================
 
 bot.catch((err, ctx) => {
-  console.error(`\n❌ CRITICAL ERROR for ${ctx.updateType}:`, err);
+  Sentry.captureException(err, {
+    extra: {
+      updateType: ctx.updateType,
+      chatId: ctx.chat?.id,
+      from: ctx.from?.id,
+    },
+  });
+
+  logger.error({ err: err }, `\n❌ CRITICAL ERROR for ${ctx.updateType}:`);
 
   ctx
     .reply(
@@ -198,21 +309,20 @@ bot.catch((err, ctx) => {
 // Express Server
 // ============================================================
 
-const app = express();
-
 const PORT = Number(process.env.PORT) || 3000;
 
-const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/telegram/webhook";
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH?.trim() || "/telegram/webhook";
+const WEBHOOK_URL = `${config.webhookDomain}${WEBHOOK_PATH}`;
 
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET_TOKEN;
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests" },
+});
 
-const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN || `http://localhost:${PORT}`;
-
-const WEBHOOK_URL = `${WEBHOOK_DOMAIN.replace(/\/$/, "")}${WEBHOOK_PATH}`;
-
-// ============================================================
-// Health Checks
-// ============================================================
+const app = express();
 
 app.get("/healthz", (_req, res) => {
   res.status(200).json({ status: "ok" });
@@ -223,20 +333,18 @@ app.get("/readyz", async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({ status: "ready" });
   } catch (error) {
-    console.error("❌ Readiness check failed:", error);
+    logger.error({ err: error }, "❌ Readiness check failed:");
     res.status(503).json({ status: "not_ready" });
   }
 });
 
-// ============================================================
-// JSON Body Parser & Webhook
-// ============================================================
-
 app.use(express.json());
 
-app.use(
+app.post(
+  WEBHOOK_PATH,
+  webhookLimiter,
   bot.webhookCallback(WEBHOOK_PATH, {
-    secretToken: WEBHOOK_SECRET,
+    secretToken: config.webhookSecret,
   }),
 );
 
@@ -245,29 +353,34 @@ app.use(
 // ============================================================
 
 const server = app.listen(PORT, async () => {
-  console.log(`🌐 Health-check server running on port ${PORT}`);
+  logger.info(`🌐 Health-check server running on port ${PORT}`);
 
   try {
     // Connect to PostgreSQL
     await prisma.$connect();
-    console.log("✅ PostgreSQL Database connected successfully via Prisma");
+    logger.info("✅ PostgreSQL Database connected successfully via Prisma");
 
     // Configure Telegram webhook
     await bot.telegram.setWebhook(WEBHOOK_URL, {
-      secret_token: WEBHOOK_SECRET,
+      secret_token: config.webhookSecret,
     });
-    console.log(`✅ Webhook configured: ${WEBHOOK_URL}`);
+    logger.info(`✅ Webhook configured: ${WEBHOOK_URL}`);
 
     // ----------------------------------------------------
     // Command Menu Setup
     // ----------------------------------------------------
 
     // 1. Default menu for general users
-    await bot.telegram.setMyCommands([
+    [
       { command: "start", description: "Start the bot" },
       { command: "sell", description: "Post a new item" },
       { command: "cancel", description: "Cancel active operation" },
-    ]);
+      { command: "rules", description: "View rules" },
+      { command: "setrules", description: "⚙️ Update rules" },
+      { command: "soldout", description: "🔴 Mark listing sold out" },
+      { command: "available", description: "🟢 Mark listing available" },
+      { command: "resetlisting", description: "♻️ Reset stuck APPROVING" },
+    ];
 
     // 2. Custom menu scoped exclusively for Admins
     const adminIds = (
@@ -295,16 +408,21 @@ const server = app.listen(PORT, async () => {
           },
         );
       } catch (err) {
-        console.error(
+        Sentry.captureException(err);
+        logger.error(
+          { err: err },
           `❌ Failed to set admin commands for ID ${adminId}:`,
-          err,
         );
       }
     }
 
-    console.log("✅ Bot menu commands configured successfully.");
+    logger.info("✅ Bot menu commands configured successfully.");
+
+    startSessionCleanup();
+    startAdminGroupRetry(telegramService);
   } catch (err) {
-    console.error("\n❌ FAILED TO START:", err);
+    Sentry.captureException(err);
+    logger.error({ err: err }, "\n❌ FAILED TO START:");
 
     server.close(() => {
       process.exit(1);
@@ -317,24 +435,24 @@ const server = app.listen(PORT, async () => {
 // ============================================================
 
 const stopBot = async (signal: string) => {
-  console.log(`Received ${signal}. Shutting down...`);
+  logger.info(`Received ${signal}. Shutting down...`);
 
   try {
     bot.stop(signal);
 
     await new Promise<void>((resolve) => {
       server.close(() => {
-        console.log("✅ HTTP server closed.");
+        logger.info("✅ HTTP server closed.");
         resolve();
       });
     });
 
     await closeDatabase();
 
-    console.log("✅ Database connection closed.");
-    console.log("✅ Shutdown complete.");
+    logger.info("✅ Database connection closed.");
+    logger.info("✅ Shutdown complete.");
   } catch (error) {
-    console.error("❌ Error during shutdown:", error);
+    logger.error({ err: error }, "❌ Error during shutdown:");
     process.exitCode = 1;
   }
 };

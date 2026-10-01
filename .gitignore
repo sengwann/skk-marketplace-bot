@@ -18,3 +18,9 @@ coverage/
 *.sqlite
 
 .next/
+
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+package-lock.json

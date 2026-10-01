@@ -2,6 +2,7 @@ import { Markup, Scenes } from "telegraf";
 import { MyContext, Category, Location, Currency } from "../types/listing";
 import { escapeHtml } from "../utils/htmlEscape";
 import { randomUUID } from "node:crypto";
+import { logger } from "@/utils/logger";
 
 interface WizardState {
   submissionKey?: string;
@@ -21,10 +22,47 @@ interface WizardState {
 const getWizState = (ctx: MyContext): WizardState =>
   ctx.wizard.state as WizardState;
 
+async function handleCommandText(
+  ctx: MyContext,
+  text: string,
+): Promise<boolean> {
+  if (!text.startsWith("/")) {
+    return false;
+  }
+
+  if (text === "/cancel") {
+    await ctx.reply("❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။");
+    await ctx.scene.leave();
+    return true;
+  }
+
+  await ctx.reply("⚠️ Command အသုံးမပြုပါ။ ပုံမှန်စာသားဖြင့် ဖြည့်ပေးပါ။");
+  return true;
+}
+
+async function cancelIfCommand(ctx: MyContext): Promise<boolean> {
+  if (!ctx.message || !("text" in ctx.message)) {
+    return false;
+  }
+  const text = ctx.message.text.trim();
+  if (text === "/cancel") {
+    await ctx.reply("❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။");
+    await ctx.scene.leave();
+    return true;
+  }
+  if (text.startsWith("/")) {
+    await ctx.reply("⚠️ Command အသုံးမပြုပါ။ ပုံမှန်စာသားဖြင့် ဖြည့်ပေးပါ။");
+    return true;
+  }
+  return false;
+}
+
 // -------------------------------------------------------------
 // Constants
 // -------------------------------------------------------------
-
+const MAX_PRODUCT_NAME_LENGTH = 80;
+const MAX_CONDITION_LENGTH = 200;
+const MAX_CONTACT_LENGTH = 80;
 const MAX_PHOTOS = 6;
 const MAX_NOTE_LENGTH = 500;
 
@@ -71,7 +109,9 @@ function parsePrice(text: string): {
   priceAmount: number;
   currency: Currency;
 } | null {
-  const match = text.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/);
+  // 1. Remove all commas from input (e.g., "25,000 MMK" -> "25000 MMK")
+  const sanitized = text.replace(/,/g, "").trim();
+  const match = sanitized.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$/);
 
   if (!match) {
     return null;
@@ -227,8 +267,8 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Start
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
-    state.submissionKey ??= randomUUID();
 
     // New listing = new state.
     for (const key of Object.keys(state) as Array<keyof WizardState>) {
@@ -245,10 +285,21 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Product name
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
+
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
 
     if (!text) {
       return ctx.reply("⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_PRODUCT_NAME_LENGTH) {
+      return ctx.reply(
+        `⚠️ ပစ္စည်းအမည်သည် စာလုံး ${MAX_PRODUCT_NAME_LENGTH} ထက် မပိုရပါ။`,
+      );
     }
 
     const state = getWizState(ctx);
@@ -269,8 +320,9 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Category
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
-      return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားခလုတ်တစ်ခုကို ရွေးချယ်ပါ။");
+      return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။");
     }
 
     const category = ctx.callbackQuery.data as Category;
@@ -299,6 +351,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Location
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -328,9 +381,14 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Price
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-    const price = parsePrice(text);
 
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
+
+    const price = parsePrice(text);
     if (!price) {
       return ctx.reply(
         "⚠️ ဈေးနှုန်းနှင့် ငွေကြေးကို မှန်ကန်စွာ ရေးပေးပါ။\n" +
@@ -356,10 +414,20 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Condition
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
 
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_CONDITION_LENGTH) {
+      return ctx.reply(
+        `⚠️ အခြေအနေသည် စာလုံး ${MAX_CONDITION_LENGTH} ထက် မပိုရပါ။`,
+      );
     }
 
     const state = getWizState(ctx);
@@ -383,6 +451,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Note
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 
@@ -404,7 +473,9 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
     }
 
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply(
         '⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ သို့မဟုတ် "ကျော်မည် ⏭️" ကို နှိပ်ပါ။',
@@ -429,10 +500,19 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Contact
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_CONTACT_LENGTH) {
+      return ctx.reply(
+        `⚠️ ဆက်သွယ်ရန်အချက်အလက်သည် စာလုံး ${MAX_CONTACT_LENGTH} ထက် မပိုရပါ။`,
+      );
     }
 
     const state = getWizState(ctx);
@@ -458,6 +538,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Photos
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 
@@ -493,6 +574,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Review
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ အောက်ပါခလုတ်များထဲမှ တစ်ခုကို ရွေးချယ်ပေးပါ။");
     }
@@ -523,10 +605,10 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
       try {
         await ctx.reply("⌛ သင့်ပစ္စည်းကို စိစစ်ရန် ပို့ပေးနေပါသည်...");
 
-        const listing = await ctx.listingService.createListing({
+        await ctx.listingService.createListing({
           submissionKey: state.submissionKey!,
 
-          sellerTelegramId: ctx.from!.id,
+          sellerTelegramId: BigInt(ctx.from!.id),
 
           sellerUsername: ctx.from!.username || null,
 
@@ -551,7 +633,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
           photoFileIds: state.photoFileIds,
         });
 
-        console.log("✅ Listing created:", listing.id);
+        logger.info("✅ Listing created:");
 
         await ctx.reply(
           "✅ သင့်ပစ္စည်းကို အောင်မြင်စွာ တင်ပြီးပါပြီ။\n\n" +
@@ -560,7 +642,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
 
         return ctx.scene.leave();
       } catch (error) {
-        console.error("❌ Failed to create listing:", error);
+        logger.error({ err: error }, "❌ Failed to create listing:");
 
         return ctx.reply(
           "⚠️ စနစ်ပိုင်းဆိုင်ရာ အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။\n" +
@@ -684,10 +766,19 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit product
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ ပစ္စည်းအမည်ကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_PRODUCT_NAME_LENGTH) {
+      return ctx.reply(
+        `⚠️ ပစ္စည်းအမည်သည် စာလုံး ${MAX_PRODUCT_NAME_LENGTH} ထက် မပိုရပါ။`,
+      );
     }
 
     const state = getWizState(ctx);
@@ -704,6 +795,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit category
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -730,6 +822,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit location
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -756,7 +849,11 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit price
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     const price = parsePrice(text);
 
     if (!price) {
@@ -781,10 +878,19 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit condition
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ အခြေအနေကို စာသားဖြင့် ရေးပေးပါ။");
+    }
+
+    if (text.length > MAX_CONDITION_LENGTH) {
+      return ctx.reply(
+        `⚠️ အခြေအနေသည် စာလုံး ${MAX_CONDITION_LENGTH} ထက် မပိုရပါ။`,
+      );
     }
 
     const state = getWizState(ctx);
@@ -801,8 +907,11 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit note
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ မှတ်ချက်ကို စာသားဖြင့် ရေးပေးပါ။");
     }
@@ -826,12 +935,20 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit contact
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
-
+    if (await handleCommandText(ctx, text)) {
+      return;
+    }
     if (!text) {
       return ctx.reply("⚠️ ဆက်သွယ်ရန် အချက်အလက်ကို ရေးပေးပါ။");
     }
 
+    if (text.length > MAX_CONTACT_LENGTH) {
+      return ctx.reply(
+        `⚠️ ဆက်သွယ်ရန်အချက်အလက်သည် စာလုံး ${MAX_CONTACT_LENGTH} ထက် မပိုရပါ။`,
+      );
+    }
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
     state.contact = text;
@@ -846,6 +963,7 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit photos
   // ===========================================================
   async (ctx) => {
+    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 

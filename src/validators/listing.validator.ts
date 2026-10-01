@@ -1,7 +1,10 @@
 import { z } from "zod";
+import { Category, Location } from "../types/listing";
 
 export const listingInputSchema = z.object({
-  sellerTelegramId: z.number().int().positive(),
+  submissionKey: z.string().min(1).max(64),
+
+  sellerTelegramId: z.bigint().positive(),
 
   sellerUsername: z.string().max(64).nullable().optional(),
 
@@ -9,9 +12,9 @@ export const listingInputSchema = z.object({
 
   productName: z.string().trim().min(1).max(120),
 
-  category: z.enum(["ELECTRONICS", "CLOTHING", "HOME", "VEHICLE", "OTHER"]),
+  category: z.nativeEnum(Category),
 
-  location: z.enum(["SHWE_KOKKO", "MYAWADDY"]),
+  location: z.nativeEnum(Location),
 
   priceAmount: z.number().finite().positive().max(1_000_000_000_000),
 
@@ -25,3 +28,7 @@ export const listingInputSchema = z.object({
 
   photoFileIds: z.array(z.string().min(1).max(256)).min(1).max(6),
 });
+
+export function validateListingInput(data: unknown) {
+  return listingInputSchema.safeParse(data);
+}

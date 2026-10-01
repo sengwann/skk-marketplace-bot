@@ -1,13 +1,12 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "commonjs"
 }
 
 datasource db {
   provider = "postgresql"
 }
-
 
 enum ListingStatus {
   PENDING
@@ -22,29 +21,46 @@ enum ListingAvailability {
 }
 
 model Listing {
-  id               String              @id @default(uuid())
-  sellerTelegramId BigInt              @map("seller_telegram_id")
-  sellerUsername   String?             @map("seller_username")
-  sellerFirstName  String?             @map("seller_first_name")
-  productName      String              @map("product_name")
-  category         String
-  location         String
-  priceAmount      Float               @map("price_amount")
-  currency         String
-  condition        String
-  note             String?
-  contact          String
-  photoFileIds     String[]            @map("photo_file_ids")
-  status           ListingStatus       @default(PENDING)
-  availability     ListingAvailability @default(AVAILABLE)
-  rejectionReason  String?             @map("rejection_reason")
-  channelMessageId BigInt?             @map("channel_message_id")
-  submissionKey String? @unique @map("submission_key")
-  
-  originalData     Json?               @map("original_data")
+  // --- Primary Keys ---
+  id       String @id @default(uuid())
+  publicId String @unique @map("public_id")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
+  // --- Seller Info ---
+  sellerTelegramId BigInt  @map("seller_telegram_id")
+  sellerUsername   String? @map("seller_username")
+  sellerFirstName  String? @map("seller_first_name")
 
+  // --- Listing Data ---
+  productName  String   @map("product_name")
+  category     String
+  location     String
+  priceAmount  Float    @map("price_amount")
+  currency     String
+  condition    String
+  note         String?
+  contact      String
+  photoFileIds String[] @map("photo_file_ids")
+
+  // --- State & Status ---
+  status          ListingStatus       @default(PENDING)
+  availability    ListingAvailability @default(AVAILABLE)
+  rejectionReason String?             @map("rejection_reason")
+
+  // --- Telegram Integration ---
+  channelMessageId BigInt? @map("channel_message_id")
+
+  // --- Reliability & Tracking Fields ---
+  submissionKey       String?   @unique @map("submission_key")
+  adminGroupSentAt    DateTime? @map("admin_group_sent_at") // Prevents lost listings
+  adminGroupMessageId BigInt?   @map("admin_group_message_id") // Tracks admin control message
+  approvalStartedAt   DateTime? @map("approval_started_at") // Tracks stuck approvals
+
+  // --- Audit & Original Data ---
+  originalData Json?    @map("original_data")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // --- Indexes ---
   @@index([status])
   @@index([availability])
   @@index([sellerTelegramId])
@@ -53,10 +69,11 @@ model Listing {
 }
 
 model TelegramSession {
-  key       String   @id
+  key       String    @id
   session   Json
   expiresAt DateTime? @map("expires_at")
 
+  @@index([expiresAt])
   @@map("telegram_sessions")
 }
 

@@ -1,45 +1,17 @@
 import {
   ListingAvailability,
   ListingStatus,
-  Category,
-  Currency,
-  Location,
+  CreateListingInput,
 } from "../types/listing";
-
+import { logger } from "@/utils/logger";
 import {
   ListingRepository,
-  CreateListingRepositoryInput,
   UpdatePendingListingInput,
 } from "../db/listing.repository";
+import { escapeHtml } from "../utils/htmlEscape";
 
 import { TelegramService } from "./telegram.service";
 import { listingInputSchema } from "../validators/listing.validator";
-
-// ============================================================
-// Create listing input
-// ============================================================
-
-export interface CreateListingInput {
-  submissionKey: string;
-
-  sellerTelegramId: number;
-
-  sellerUsername?: string | null;
-  sellerFirstName?: string | null;
-
-  productName: string;
-  category: Category;
-  location: Location;
-
-  priceAmount: number;
-  currency: Currency;
-
-  condition: string;
-  note?: string | null;
-  contact: string;
-
-  photoFileIds: string[];
-}
 
 // ============================================================
 // Listing service
@@ -48,6 +20,45 @@ export interface CreateListingInput {
 export class ListingService {
   constructor(private telegramService: TelegramService) {}
 
+  private normalizePublicId(raw: string): string {
+    return raw.trim().toUpperCase().replace(/^#/, "").replace(/-/g, "");
+  }
+
+  async getListingByPublicId(rawPublicId: string) {
+    const publicId = this.normalizePublicId(rawPublicId);
+
+    if (!publicId) {
+      throw new Error("Listing ID is required.");
+    }
+
+    const listing = await ListingRepository.findByPublicId(publicId);
+
+    if (!listing) {
+      throw new Error("Listing ID not found.");
+    }
+
+    return listing;
+  }
+
+  async markAsSoldOutByPublicId(rawPublicId: string) {
+    const listing = await this.getListingByPublicId(rawPublicId);
+
+    if (listing.status !== ListingStatus.APPROVED) {
+      throw new Error("Only approved listings can be marked as sold out.");
+    }
+
+    return this.markAsSoldOut(listing.id);
+  }
+
+  async markAsAvailableByPublicId(rawPublicId: string) {
+    const listing = await this.getListingByPublicId(rawPublicId);
+
+    if (listing.status !== ListingStatus.APPROVED) {
+      throw new Error("Only approved listings can be marked as available.");
+    }
+
+    return this.markAsAvailable(listing.id);
+  }
   // ==========================================================
   // Get listing
   // ==========================================================
@@ -79,32 +90,27 @@ export class ListingService {
   // ==========================================================
 
   async createListing(data: CreateListingInput) {
-    const repositoryData: CreateListingRepositoryInput = {
-      submissionKey: data.submissionKey,
+    const parsed = listingInputSchema.safeParse(data);
 
-      sellerTelegramId: data.sellerTelegramId,
+    if (!parsed.success) {
+      logger.warn({ issues: parsed.error.issues }, "❌ Invalid listing input");
 
-      sellerUsername: data.sellerUsername ?? null,
-
-      sellerFirstName: data.sellerFirstName ?? null,
-
-      productName: data.productName,
-
-      category: data.category,
-
-      location: data.location,
-
-      priceAmount: data.priceAmount,
-
-      currency: data.currency,
-
-      condition: data.condition,
-
-      note: data.note ?? null,
-
-      contact: data.contact,
-
-      photoFileIds: data.photoFileIds,
+      throw new Error("Invalid listing input.");
+    }
+    const repositoryData: CreateListingInput = {
+      submissionKey: parsed.data.submissionKey,
+      sellerTelegramId: parsed.data.sellerTelegramId,
+      sellerUsername: parsed.data.sellerUsername ?? null,
+      sellerFirstName: parsed.data.sellerFirstName ?? null,
+      productName: parsed.data.productName,
+      category: parsed.data.category,
+      location: parsed.data.location,
+      priceAmount: parsed.data.priceAmount,
+      currency: parsed.data.currency,
+      condition: parsed.data.condition,
+      note: parsed.data.note ?? null,
+      contact: parsed.data.contact,
+      photoFileIds: parsed.data.photoFileIds,
     };
 
     let listing: Awaited<ReturnType<typeof ListingRepository.create>>;
@@ -123,20 +129,50 @@ export class ListingService {
           data.submissionKey,
         );
         if (existing) {
+          if (
+            existing.status === ListingStatus.PENDING &&
+            !existing.adminGroupSentAt
+          ) {
+            try {
+              const adminMessage =
+                await this.telegramService.sendToAdminGroup(existing);
+
+              await ListingRepository.markAdminGroupSent(
+                existing.id,
+                BigInt(adminMessage.message_id),
+              );
+            } catch (error) {
+              logger.error(
+                { err: error },
+                "❌ Existing listing found but failed to resend admin notification:",
+              );
+
+              throw new Error(
+                "Listing exists, but sending to admin group failed.",
+              );
+            }
+          }
+
           return existing;
         }
       }
       throw error;
     }
 
-    // Now 'listing' is accessible here
     try {
-      await this.telegramService.sendToAdminGroup(listing);
-    } catch (error) {
-      console.error(
-        "❌ Listing saved but failed to send to admin group:",
-        error,
+      const adminMessage = await this.telegramService.sendToAdminGroup(listing);
+
+      await ListingRepository.markAdminGroupSent(
+        listing.id,
+        BigInt(adminMessage.message_id),
       );
+    } catch (error) {
+      logger.error(
+        { err: error, listingId: listing.id, publicId: listing.publicId },
+        "❌ Listing saved but failed to send to admin group. " +
+          "Manual resend or a future retry job is required.",
+      );
+
       throw new Error("Listing was saved, but sending to admin group failed.");
     }
 
@@ -221,7 +257,8 @@ export class ListingService {
          * Do NOT undo approval if seller notification fails.
          */
 
-        console.error(
+        logger.error(
+          { err: error },
           "❌ Listing approved and published, but failed to notify seller:",
           {
             listingId: id,
@@ -237,9 +274,12 @@ export class ListingService {
 
       return {
         message:
-          `✅ <b>အတည်ပြုပြီးပါပြီ</b>\n\n` +
-          `ပစ္စည်း: ${claimedListing.productName}\n` +
-          `ဈေးနှုန်း: ${claimedListing.priceAmount} ${claimedListing.currency}\n` +
+          `✅ <b>အတည်ပြုပြီးပါပြီ</b>
+        ` +
+          `ပစ္စည်း: ${escapeHtml(claimedListing.productName)}
+        ` +
+          `ဈေးနှုန်း: ${claimedListing.priceAmount} ${escapeHtml(claimedListing.currency)}
+        ` +
           `📢 Channel တွင် ဖော်ပြပြီးပါပြီ။`,
       };
     } catch (error) {
@@ -255,7 +295,8 @@ export class ListingService {
         try {
           await ListingRepository.rollbackToPending(id);
         } catch (rollbackError) {
-          console.error(
+          logger.error(
+            { err: error },
             `❌ Failed to rollback listing ${id} to PENDING:`,
             rollbackError,
           );
@@ -272,9 +313,10 @@ export class ListingService {
         // could allow another approval and create a duplicate post.
         //
 
-        console.error(
-          `⚠️ Telegram published but database approval failed for listing ${id}`,
-          error,
+        logger.error(
+          { err: error, listingId: id },
+          `⚠️ Telegram published but database approval failed for listing ${id}. ` +
+            `Manual intervention required. DO NOT use /resetlisting blindly.`,
         );
       }
 
@@ -321,18 +363,23 @@ export class ListingService {
        * the rejection.
        */
 
-      console.error("❌ Listing rejected, but failed to notify seller:", {
-        listingId: id,
-        sellerTelegramId: listing.sellerTelegramId,
-        error,
-      });
+      logger.error(
+        { err: error },
+        "❌ Listing rejected, but failed to notify seller:",
+        {
+          listingId: id,
+          sellerTelegramId: listing.sellerTelegramId,
+        },
+      );
     }
 
     return {
       message:
-        `❌ <b>ပယ်ဖျက်ပြီးပါပြီ</b>\n\n` +
-        `ပစ္စည်း: ${listing.productName}\n` +
-        `အကြောင်းပြချက်: ${cleanReason}`,
+        `❌ <b>ပယ်ဖျက်ပြီးပါပြီ</b>
+      ` +
+        `ပစ္စည်း: ${escapeHtml(listing.productName)}
+      ` +
+        `အကြောင်းပြချက်: ${escapeHtml(cleanReason)}`,
     };
   }
 
@@ -350,11 +397,23 @@ export class ListingService {
       listing.status === ListingStatus.APPROVED &&
       listing.channelMessageId !== null
     ) {
-      await this.telegramService.updateChannelListing(listing);
+      try {
+        await this.telegramService.updateChannelListing(listing);
+      } catch (error) {
+        logger.error(
+          { err: error },
+          `⚠️ DB updated to SOLD_OUT but channel edit failed for listing ${id}. Admin can retry.`,
+        );
+        throw new Error(
+          "DB updated to Sold Out, but channel edit failed. Please retry /soldout.",
+        );
+      }
     }
 
     return {
-      message: `🔴 <b>Sold Out</b>\n\n` + `ပစ္စည်း: ${listing.productName}`,
+      message:
+        `🔴 <b>Sold Out</b>
+      ` + `ပစ္စည်း: ${escapeHtml(listing.productName)}`,
     };
   }
 
@@ -372,11 +431,45 @@ export class ListingService {
       listing.status === ListingStatus.APPROVED &&
       listing.channelMessageId !== null
     ) {
-      await this.telegramService.updateChannelListing(listing);
+      try {
+        await this.telegramService.updateChannelListing(listing);
+      } catch (error) {
+        logger.error(
+          { err: error },
+          `⚠️ DB updated to Available but channel edit failed for listing ${id}. Admin can retry.`,
+        );
+        throw new Error(
+          "DB updated to Available, but channel edit failed. Please retry /available.",
+        );
+      }
     }
 
     return {
-      message: `🟢 <b>Available</b>\n\n` + `ပစ္စည်း: ${listing.productName}`,
+      message:
+        `🟢 <b>Available</b>
+      ` + `ပစ္စည်း: ${escapeHtml(listing.productName)}`,
+    };
+  }
+
+  async resetStuckApproving(id: string) {
+    const listing = await ListingRepository.findById(id);
+
+    if (!listing) {
+      throw new Error("Listing not found.");
+    }
+
+    if (listing.status !== ListingStatus.APPROVING) {
+      throw new Error("Only APPROVING listings can be reset.");
+    }
+
+    const reset = await ListingRepository.resetApprovingToPending(id);
+
+    if (!reset) {
+      throw new Error("Failed to reset listing.");
+    }
+
+    return {
+      message: `✅ Listing ${id} ကို PENDING သို့ ပြန်ပြောင်းပြီးပါပြီ။`,
     };
   }
 }

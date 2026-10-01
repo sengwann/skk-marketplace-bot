@@ -5,40 +5,16 @@ import {
   ListingStatus,
   ListingAvailability,
   Currency,
+  CreateListingInput,
 } from "../types/listing";
 
 import {
   ListingStatus as PrismaListingStatus,
   ListingAvailability as PrismaListingAvailability,
 } from "../generated/prisma/client";
+import { generateListingId } from "../utils/idGenerator";
 
 import { prisma } from "./prisma";
-
-// ============================================================
-// Create input
-// ============================================================
-
-export interface CreateListingRepositoryInput {
-  submissionKey: string;
-
-  sellerTelegramId: number;
-
-  sellerUsername: string | null;
-  sellerFirstName: string | null;
-
-  productName: string;
-  category: Category;
-  location: Location;
-
-  priceAmount: number;
-  currency: Currency;
-
-  condition: string;
-  note: string | null;
-  contact: string;
-
-  photoFileIds: string[];
-}
 
 // ============================================================
 // Update pending listing input
@@ -61,7 +37,9 @@ export interface UpdatePendingListingInput {
 
 function mapToEntity(model: {
   id: string;
-
+  publicId: string;
+  adminGroupSentAt: Date | null;
+  adminGroupMessageId: bigint | null;
   sellerTelegramId: bigint;
   sellerUsername: string | null;
   sellerFirstName: string | null;
@@ -91,8 +69,13 @@ function mapToEntity(model: {
 }): Listing {
   return {
     id: model.id,
-
-    sellerTelegramId: Number(model.sellerTelegramId),
+    publicId: model.publicId,
+    adminGroupSentAt: model.adminGroupSentAt,
+    adminGroupMessageId:
+      model.adminGroupMessageId === null
+        ? null
+        : BigInt(model.adminGroupMessageId),
+    sellerTelegramId: model.sellerTelegramId,
 
     sellerUsername: model.sellerUsername,
 
@@ -123,7 +106,7 @@ function mapToEntity(model: {
     rejectionReason: model.rejectionReason,
 
     channelMessageId:
-      model.channelMessageId === null ? null : Number(model.channelMessageId),
+      model.channelMessageId === null ? null : BigInt(model.channelMessageId),
 
     createdAt: model.createdAt,
   };
@@ -134,9 +117,56 @@ function mapToEntity(model: {
 // ============================================================
 
 export const ListingRepository = {
+  async findByPublicId(publicId: string): Promise<Listing | null> {
+    const listing = await prisma.listing.findUnique({
+      where: {
+        publicId,
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    return mapToEntity(listing);
+  },
   // ==========================================================
   // Find by submission key
   // ==========================================================
+  async markAdminGroupSent(
+    id: string,
+    adminGroupMessageId?: bigint,
+  ): Promise<boolean> {
+    const result = await prisma.listing.updateMany({
+      where: {
+        id,
+        status: PrismaListingStatus.PENDING,
+      },
+      data: {
+        adminGroupSentAt: new Date(),
+        ...(adminGroupMessageId !== undefined && {
+          adminGroupMessageId: BigInt(adminGroupMessageId),
+        }),
+      },
+    });
+
+    return result.count === 1;
+  },
+
+  async resetApprovingToPending(id: string): Promise<boolean> {
+    const result = await prisma.listing.updateMany({
+      where: {
+        id,
+        status: PrismaListingStatus.APPROVING,
+      },
+      data: {
+        status: PrismaListingStatus.PENDING,
+        approvalStartedAt: null,
+      },
+    });
+
+    return result.count === 1;
+  },
 
   async findBySubmissionKey(submissionKey: string): Promise<Listing | null> {
     const listing = await prisma.listing.findUnique({
@@ -156,42 +186,52 @@ export const ListingRepository = {
   // Create listing
   // ==========================================================
 
-  async create(data: CreateListingRepositoryInput): Promise<Listing> {
-    const created = await prisma.listing.create({
-      data: {
-        submissionKey: data.submissionKey,
+  async create(data: CreateListingInput): Promise<Listing> {
+    const maxAttempts = 5;
 
-        sellerTelegramId: BigInt(data.sellerTelegramId),
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const publicId = generateListingId();
 
-        sellerUsername: data.sellerUsername,
+      try {
+        const created = await prisma.listing.create({
+          data: {
+            publicId,
+            submissionKey: data.submissionKey,
+            sellerTelegramId: BigInt(data.sellerTelegramId),
+            sellerUsername: data.sellerUsername,
+            sellerFirstName: data.sellerFirstName,
+            productName: data.productName,
+            category: data.category,
+            location: data.location,
+            priceAmount: data.priceAmount,
+            currency: data.currency,
+            condition: data.condition,
+            note: data.note,
+            contact: data.contact,
+            photoFileIds: data.photoFileIds,
+            status: PrismaListingStatus.PENDING,
+            availability: PrismaListingAvailability.AVAILABLE,
+          },
+        });
 
-        sellerFirstName: data.sellerFirstName,
+        return mapToEntity(created);
+      } catch (error: any) {
+        const target = error?.meta?.target;
 
-        productName: data.productName,
+        const isPublicIdConflict =
+          error?.code === "P2002" &&
+          (target === "public_id" ||
+            (Array.isArray(target) && target.includes("public_id")));
 
-        category: data.category,
+        if (!isPublicIdConflict) {
+          throw error;
+        }
 
-        location: data.location,
+        // If publicId collision, retry with new ID
+      }
+    }
 
-        priceAmount: data.priceAmount,
-
-        currency: data.currency,
-
-        condition: data.condition,
-
-        note: data.note,
-
-        contact: data.contact,
-
-        photoFileIds: data.photoFileIds,
-
-        status: PrismaListingStatus.PENDING,
-
-        availability: PrismaListingAvailability.AVAILABLE,
-      },
-    });
-
-    return mapToEntity(created);
+    throw new Error("Could not generate unique public listing ID.");
   },
 
   // ==========================================================
@@ -233,6 +273,7 @@ export const ListingRepository = {
 
       data: {
         status: PrismaListingStatus.APPROVING,
+        approvalStartedAt: new Date(),
       },
     });
 

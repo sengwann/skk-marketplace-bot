@@ -1,5 +1,5 @@
 import { Markup, Telegraf } from "telegraf";
-
+import { logger } from "@/utils/logger";
 import {
   MyContext,
   MyWizardSession,
@@ -39,6 +39,41 @@ const locationLabels: Record<Location, string> = {
   [Location.MYAWADDY]: "Myawaddy",
 };
 
+// ============================================================
+// Admin edit limits (must match validator + Telegram caption limit)
+// ============================================================
+
+const ADMIN_MAX_PRODUCT_NAME = 120;
+const ADMIN_MAX_CONDITION = 300;
+const ADMIN_MAX_NOTE = 500;
+const ADMIN_MAX_CONTACT = 100;
+
+const TELEGRAM_CAPTION_LIMIT = 1024;
+
+function estimateCaptionLength(listing: {
+  productName: string;
+  category: string;
+  location: string;
+  priceAmount: number;
+  currency: string;
+  condition: string;
+  note: string | null;
+  contact: string;
+  publicId: string;
+}): number {
+  const noteLen = listing.note ? listing.note.length : 0;
+  // Rough estimate of the formatListingMessage output.
+  return (
+    listing.productName.length +
+    listing.condition.length +
+    noteLen +
+    listing.contact.length +
+    listing.publicId.length +
+    listing.category.length +
+    listing.location.length +
+    200 // static text/labels/hashtags
+  );
+}
 function getAdminSession(ctx: MyContext): MyWizardSession {
   return ctx.session as MyWizardSession;
 }
@@ -345,6 +380,65 @@ export function registerAdminHandlers(
   listingService: ListingService,
   settingService: SettingService,
 ) {
+  bot.command("soldout", async (ctx) => {
+    if (!isAuthorizedAdminUser(ctx)) {
+      return ctx.reply(
+        "⚠️ ဤ Command ကို အုပ်ထိန်းသူများသာ အသုံးပြုခွင့်ရှိပါသည်။",
+      );
+    }
+
+    const rawId = ctx.message.text?.split(/\s+/)[1];
+
+    if (!rawId) {
+      return ctx.reply("အသုံးပြုပုံ: /soldout SK7K2M9XQ");
+    }
+
+    try {
+      const result = await listingService.markAsSoldOutByPublicId(rawId);
+
+      await ctx.reply(result.message, {
+        parse_mode: "HTML",
+      });
+    } catch (error) {
+      logger.error({ err: error }, "❌ Admin /soldout error:");
+
+      await ctx.reply(
+        error instanceof Error
+          ? `❌ ${error.message}`
+          : "❌ Sold Out ပြောင်း၍ မရပါ။",
+      );
+    }
+  });
+
+  bot.command("available", async (ctx) => {
+    if (!isAuthorizedAdminUser(ctx)) {
+      return ctx.reply(
+        "⚠️ ဤ Command ကို အုပ်ထိန်းသူများသာ အသုံးပြုခွင့်ရှိပါသည်။",
+      );
+    }
+
+    const rawId = ctx.message.text?.split(/\s+/)[1];
+
+    if (!rawId) {
+      return ctx.reply("အသုံးပြုပုံ: /available SK7K2M9XQ");
+    }
+
+    try {
+      const result = await listingService.markAsAvailableByPublicId(rawId);
+
+      await ctx.reply(result.message, {
+        parse_mode: "HTML",
+      });
+    } catch (error) {
+      logger.error({ err: error }, "❌ Admin /available error:");
+
+      await ctx.reply(
+        error instanceof Error
+          ? `❌ ${error.message}`
+          : "❌ Available ပြောင်း၍ မရပါ။",
+      );
+    }
+  });
   // ==========================================================
   // /setrules
   // ==========================================================
@@ -357,7 +451,7 @@ export function registerAdminHandlers(
     }
 
     const commandText = ctx.message.text;
-    const newRules = commandText.replace(/^\/setrules\s*/, "").trim();
+    const newRules = commandText.replace(/^\/setrules(@\w+)?\s*/, "").trim();
 
     if (!newRules) {
       const currentRules = await settingService.getRules();
@@ -378,11 +472,35 @@ export function registerAdminHandlers(
         "✅ စည်းကမ်းချက်များကို အောင်မြင်စွာ ပြောင်းလဲပြီးပါပြီ။",
       );
     } catch (error) {
-      console.error("❌ Failed to update rules:", error);
+      logger.error({ err: error }, "❌ Failed to update rules:", error);
 
       await ctx.reply(
         "❌ စည်းကမ်းချက်များ ပြောင်းလဲရာတွင် အမှားအယွင်း ရှိနေပါသည်။",
       );
+    }
+  });
+
+  bot.command("resetlisting", async (ctx) => {
+    if (!isAuthorizedAdminUser(ctx)) {
+      return ctx.reply(
+        "⚠️ ဤ Command ကို အုပ်ထိန်းသူများသာ အသုံးပြုခွင့်ရှိပါသည်။",
+      );
+    }
+
+    const listingId = ctx.message.text?.split(/\s+/)[1]?.trim();
+
+    if (!listingId) {
+      return ctx.reply("အသုံးပြုပုံ: /resetlisting <listingId>");
+    }
+
+    try {
+      const result = await listingService.resetStuckApproving(listingId);
+
+      await ctx.reply(result.message);
+    } catch (error) {
+      logger.error({ err: error }, "❌ Failed to reset listing:");
+
+      await ctx.reply("❌ Listing reset မအောင်မြင်ပါ။");
     }
   });
 
@@ -453,7 +571,7 @@ export function registerAdminHandlers(
         },
       );
     } catch (error) {
-      console.error("❌ Failed to start listing edit:", error);
+      logger.error({ err: error }, "❌ Failed to start listing edit:");
 
       await ctx
         .answerCbQuery("❌ Edit mode ဖွင့်၍ မရပါ။", {
@@ -536,7 +654,10 @@ export function registerAdminHandlers(
         return;
       }
 
-      const field = ctx.match[1] as AdminEditField;
+      const field = ctx.match[1] as Extract<
+        AdminEditField,
+        "productName" | "condition" | "note" | "contact"
+      >;
 
       const listingId = ctx.match[2];
 
@@ -552,11 +673,14 @@ export function registerAdminHandlers(
         return;
       }
 
-      const prompts: Record<AdminEditField, string> = {
+      const prompts: Record<
+        Extract<
+          AdminEditField,
+          "productName" | "condition" | "note" | "contact"
+        >,
+        string
+      > = {
         productName: "📦 ပစ္စည်းအမည်အသစ်ကို ရေးပေးပါ။",
-
-        priceAmount:
-          "💰 ဈေးနှုန်းအသစ်ကို ရေးပေးပါ။\n\nဥပမာ: <code>250000</code>",
 
         condition: "📦 ပစ္စည်းအခြေအနေအသစ်ကို ရေးပေးပါ။",
 
@@ -613,13 +737,14 @@ export function registerAdminHandlers(
     }
 
     draft.editingField = "priceAmount";
-
     draft.promptMessageId = undefined;
 
     await ctx.answerCbQuery().catch(() => {});
 
     const prompt = await ctx.reply(
-      `💰 ဈေးနှုန်းအသစ်ကို ရေးပေးပါ။\n\n` + `ဥပမာ: <code>250000</code>`,
+      `💰 ဈေးနှုန်းအသစ်ကို ရေးပေးပါ။\n\n` +
+        `ဥပမာ: <code>250000</code>\n\n` +
+        `Currency ကို သီးခြား ပြောင်းလဲနိုင်ပါသည်။`,
       {
         parse_mode: "HTML",
         ...Markup.forceReply(),
@@ -1017,6 +1142,28 @@ export function registerAdminHandlers(
 
     await ctx.answerCbQuery("⏳ သိမ်းဆည်းနေပါသည်...").catch(() => {});
 
+    const estimated = estimateCaptionLength({
+      productName: draft.productName,
+      category: draft.category,
+      location: draft.location,
+      priceAmount: draft.price.priceAmount,
+      currency: draft.price.currency,
+      condition: draft.condition,
+      note: draft.note,
+      contact: draft.contact,
+      publicId: "SK1234567",
+    });
+
+    if (estimated > TELEGRAM_CAPTION_LIMIT) {
+      await ctx
+        .answerCbQuery(
+          "⚠️ စာသားအရှည် များလွန်းနေပါသည်။ မှတ်ချက် သို့မဟုတ် အခြေအနေကို အတိုချုံ့ပါ။",
+          { show_alert: true },
+        )
+        .catch(() => {});
+      return;
+    }
+
     try {
       const updated = await listingService.updatePendingListing(listingId, {
         productName: draft.productName,
@@ -1059,7 +1206,7 @@ export function registerAdminHandlers(
         },
       );
     } catch (error) {
-      console.error("❌ Failed to save listing edits:", error);
+      logger.error({ err: error }, "❌ Failed to save listing edits:");
 
       await ctx
         .answerCbQuery(
@@ -1189,10 +1336,13 @@ export function registerAdminHandlers(
           },
         );
       } catch (error) {
-        console.error("❌ Failed to update approve control message:", error);
+        logger.error(
+          { err: error },
+          "❌ Failed to update approve control message:",
+        );
       }
     } catch (error) {
-      console.error("❌ Admin approve error:", error);
+      logger.error({ err: error }, "❌ Admin approve error:");
 
       await ctx
         .answerCbQuery(
@@ -1285,7 +1435,7 @@ export function registerAdminHandlers(
         },
       );
     } catch (error) {
-      console.error("❌ Admin sold-out error:", error);
+      logger.error({ err: error }, "❌ Admin sold-out error:");
 
       await ctx
         .answerCbQuery(
@@ -1342,7 +1492,7 @@ export function registerAdminHandlers(
         },
       );
     } catch (error) {
-      console.error("❌ Admin available error:", error);
+      logger.error({ err: error }, "❌ Admin available error:");
 
       await ctx
         .answerCbQuery(
@@ -1401,6 +1551,48 @@ export function registerAdminHandlers(
         if (!value) {
           await ctx.reply("⚠️ အချက်အလက် မရှိပါ။ ထပ်မံရေးပေးပါ။");
 
+          return;
+        }
+
+        // Length validation
+        if (
+          edit.editingField === "productName" &&
+          value.length > ADMIN_MAX_PRODUCT_NAME
+        ) {
+          await ctx.reply(
+            `⚠️ ပစ္စည်းအမည်သည် စာလုံး ${ADMIN_MAX_PRODUCT_NAME} ထက် မပိုရပါ။`,
+          );
+          return;
+        }
+
+        if (
+          edit.editingField === "condition" &&
+          value.length > ADMIN_MAX_CONDITION
+        ) {
+          await ctx.reply(
+            `⚠️ အခြေအနေသည် စာလုံး ${ADMIN_MAX_CONDITION} ထက် မပိုရပါ။`,
+          );
+          return;
+        }
+
+        if (
+          edit.editingField === "note" &&
+          value !== "-" &&
+          value.length > ADMIN_MAX_NOTE
+        ) {
+          await ctx.reply(
+            `⚠️ မှတ်ချက်သည် စာလုံး ${ADMIN_MAX_NOTE} ထက် မပိုရပါ။`,
+          );
+          return;
+        }
+
+        if (
+          edit.editingField === "contact" &&
+          value.length > ADMIN_MAX_CONTACT
+        ) {
+          await ctx.reply(
+            `⚠️ ဆက်သွယ်ရန်အချက်အလက်သည် စာလုံး ${ADMIN_MAX_CONTACT} ထက် မပိုရပါ။`,
+          );
           return;
         }
 
@@ -1518,7 +1710,10 @@ export function registerAdminHandlers(
       const controlMessageId = rejectionPromptData.reply_to_message?.message_id;
 
       if (controlMessageId === undefined) {
-        console.error("❌ Could not find control message ID for rejection.");
+        logger.error(
+          { listingId },
+          "❌ Could not find control message ID for rejection.",
+        );
 
         await ctx.reply(result.message, {
           parse_mode: "HTML",
@@ -1538,14 +1733,17 @@ export function registerAdminHandlers(
           },
         );
       } catch (error) {
-        console.error("❌ Failed to update rejection control message:", error);
+        logger.error(
+          { err: error },
+          "❌ Failed to update rejection control message:",
+        );
 
         await ctx.reply(result.message, {
           parse_mode: "HTML",
         });
       }
     } catch (error) {
-      console.error("❌ Admin reject error:", error);
+      logger.error({ err: error }, "❌ Admin reject error:");
 
       await ctx.reply(
         error instanceof Error

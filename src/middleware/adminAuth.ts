@@ -26,18 +26,21 @@ export function isAuthorizedAdmin(ctx: Context): boolean {
  * Works for commands sent in direct messages (PMs) with the bot.
  */
 export function isAuthorizedAdminUser(ctx: Context): boolean {
-  if (!ctx.from) return false;
+  if (!ctx.from) {
+    return false;
+  }
 
-  const currentUserId = String(ctx.from.id);
-  const currentChatId = ctx.chat ? String(ctx.chat.id) : "";
+  const isUserAdmin = config.adminUserIds.includes(ctx.from.id);
 
-  // 1. Check if the user is in the admin array (returns boolean)
-  const isUserAdmin = config.adminUserIds.some(
-    (adminId) => String(adminId).trim() === currentUserId,
-  );
+  if (!isUserAdmin) {
+    return false;
+  }
 
-  const isGroupAdminChat =
-    Boolean(config.adminChatId) && String(config.adminChatId) === currentChatId;
+  // Allow private chat with bot
+  if (ctx.chat?.type === "private") {
+    return true;
+  }
 
-  return isUserAdmin || isGroupAdminChat;
+  // Allow admin chat/group only if the user is also admin
+  return isAdminChat(ctx);
 }

@@ -43,15 +43,15 @@ export interface Price {
 }
 
 // ============================================================
-// Listing entity
+// Create Listing
 // ============================================================
+export interface CreateListingInput {
+  submissionKey: string;
 
-export interface Listing {
-  id: string;
+  sellerTelegramId: bigint;
 
-  sellerTelegramId: number;
-  sellerUsername: string | null;
-  sellerFirstName: string | null;
+  sellerUsername?: string | null;
+  sellerFirstName?: string | null;
 
   productName: string;
   category: Category;
@@ -61,17 +61,40 @@ export interface Listing {
   currency: Currency;
 
   condition: string;
-  note: string | null;
+  note?: string | null;
   contact: string;
 
+  photoFileIds: string[];
+}
+
+// ============================================================
+// Listing entity
+// ============================================================
+
+export interface Listing {
+  id: string;
+  publicId: string;
+
+  adminGroupSentAt: Date | null;
+  adminGroupMessageId: bigint | null;
+  sellerTelegramId: bigint;
+  sellerUsername: string | null;
+  sellerFirstName: string | null;
+
+  productName: string;
+  category: Category;
+  location: Location;
+  priceAmount: number;
+  currency: Currency;
+  condition: string;
+  note: string | null;
+  contact: string;
   photoFileIds: string[];
 
   status: ListingStatus;
   availability: ListingAvailability;
-
   rejectionReason: string | null;
-  channelMessageId: number | null;
-
+  channelMessageId: bigint | null;
   createdAt: Date;
 }
 
