@@ -2,7 +2,7 @@ import { Markup, Scenes } from "telegraf";
 import { MyContext, Category, Location, Currency } from "../types/listing";
 import { escapeHtml } from "../utils/htmlEscape";
 import { randomUUID } from "node:crypto";
-import { logger } from "@/utils/logger";
+import { logger } from "../utils/logger";
 
 interface WizardState {
   submissionKey?: string;
