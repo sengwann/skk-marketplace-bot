@@ -3,7 +3,7 @@ import {
   ListingStatus,
   CreateListingInput,
 } from "../types/listing";
-import { logger } from "@/utils/logger";
+import { logger } from "../utils/logger";
 import {
   ListingRepository,
   UpdatePendingListingInput,

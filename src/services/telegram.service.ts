@@ -3,7 +3,7 @@ import { Listing, MyContext } from "../types/listing";
 import { config } from "../config";
 import { escapeHtml } from "../utils/htmlEscape";
 import { formatListingMessage } from "../utils/formatListing";
-import { logger } from "@/utils/logger";
+import { logger } from "../utils/logger";
 
 export interface AdminListingPayload extends Listing {}
 
