@@ -179,20 +179,14 @@ bot.use((ctx, next) => {
 });
 
 // ============================================================
-// Scene
-// ============================================================
-
-const stage = new Scenes.Stage<MyContext>([sellScene], {
-  ttl: 3600,
-});
-
-bot.use(stage.middleware());
-
-// ============================================================
-// Commands
+// Commands (registered BEFORE stage so they intercept /start, /sell, /rules, /cancel)
 // ============================================================
 
 const startHandler = async (ctx: MyContext) => {
+  if (ctx.scene.current) {
+    await ctx.scene.leave();
+  }
+
   await ctx.reply(
     `မင်္ဂလာပါ။ ${config.channelName} bot မှ ကြိုဆိုပါတယ်။ 📦\n\nရွှေက္ကိုလ် နှင့် မြဝတီ မြို့နယ်အတွက် အထွေထွေ ရောင်းဝယ်မှု Bot တစ်ခု ဖြစ်ပါသည်။`,
     Markup.inlineKeyboard([
@@ -204,13 +198,20 @@ const startHandler = async (ctx: MyContext) => {
 
 bot.command("start", startHandler);
 
-const sellHandler = (ctx: MyContext) => {
+const sellHandler = async (ctx: MyContext) => {
+  if (ctx.scene.current) {
+    await ctx.scene.leave();
+  }
   return ctx.scene.enter("SELL_SCENE");
 };
 
 bot.command("sell", sellHandler);
 
 const rulesHandler = async (ctx: MyContext) => {
+  if (ctx.scene.current) {
+    await ctx.scene.leave();
+  }
+
   const rulesText = await ctx.settingService.getRules();
   await ctx.reply(
     rulesText,
@@ -225,7 +226,6 @@ bot.command("rules", rulesHandler);
 bot.command("cancel", async (ctx) => {
   if (ctx.scene.current) {
     await ctx.scene.leave();
-
     await ctx.reply(
       "❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။",
       Markup.removeKeyboard(),
@@ -234,6 +234,16 @@ bot.command("cancel", async (ctx) => {
     await ctx.reply("လက်ရှိတွင် ဖျက်သိမ်းရန် လုပ်ဆောင်ချက် မရှိပါ။");
   }
 });
+
+// ============================================================
+// Scene — must come AFTER commands
+// ============================================================
+
+const stage = new Scenes.Stage<MyContext>([sellScene], {
+  ttl: 3600,
+});
+
+bot.use(stage.middleware());
 
 bot.catch((err, ctx) => {
   logger.error(
@@ -376,10 +386,6 @@ const server = app.listen(PORT, async () => {
       { command: "sell", description: "Post a new item" },
       { command: "cancel", description: "Cancel active operation" },
       { command: "rules", description: "View rules" },
-      { command: "setrules", description: "⚙️ Update rules" },
-      { command: "soldout", description: "🔴 Mark listing sold out" },
-      { command: "available", description: "🟢 Mark listing available" },
-      { command: "resetlisting", description: "♻️ Reset stuck APPROVING" },
     ];
 
     // 2. Custom menu scoped exclusively for Admins
@@ -402,6 +408,13 @@ const server = app.listen(PORT, async () => {
             { command: "cancel", description: "Cancel active operation" },
             { command: "rules", description: "View rules" },
             { command: "setrules", description: "⚙️ Update rules" },
+            { command: "setrules", description: "⚙️ Update rules" },
+            { command: "soldout", description: "🔴 Mark listing sold out" },
+            { command: "available", description: "🟢 Mark listing available" },
+            {
+              command: "resetlisting",
+              description: "♻️ Reset stuck APPROVING",
+            },
           ],
           {
             scope: { type: "chat", chat_id: adminId },

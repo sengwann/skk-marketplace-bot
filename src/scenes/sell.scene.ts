@@ -36,25 +36,11 @@ async function handleCommandText(
     return true;
   }
 
-  await ctx.reply("⚠️ Command အသုံးမပြုပါ။ ပုံမှန်စာသားဖြင့် ဖြည့်ပေးပါ။");
+  await ctx.reply(
+    "⚠️ လက်ရှိ ဖောင်ဖြည့်နေစဉ်အတွင်း Command များ အသုံးမပြုနိုင်ပါ။\n" +
+      "ဖျက်သိမ်းလိုပါက /cancel ကို နှိပ်ပါ။",
+  );
   return true;
-}
-
-async function cancelIfCommand(ctx: MyContext): Promise<boolean> {
-  if (!ctx.message || !("text" in ctx.message)) {
-    return false;
-  }
-  const text = ctx.message.text.trim();
-  if (text === "/cancel") {
-    await ctx.reply("❌ ပစ္စည်းတင်ခြင်းကို ပယ်ဖျက်လိုက်ပါပြီ။");
-    await ctx.scene.leave();
-    return true;
-  }
-  if (text.startsWith("/")) {
-    await ctx.reply("⚠️ Command အသုံးမပြုပါ။ ပုံမှန်စာသားဖြင့် ဖြည့်ပေးပါ။");
-    return true;
-  }
-  return false;
 }
 
 // -------------------------------------------------------------
@@ -267,7 +253,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Start
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
 
     // New listing = new state.
@@ -285,7 +270,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Product name
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
 
     if (await handleCommandText(ctx, text)) {
@@ -320,7 +304,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Category
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -351,7 +334,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Location
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -381,7 +363,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Price
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
 
     if (await handleCommandText(ctx, text)) {
@@ -414,7 +395,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Condition
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
 
     if (await handleCommandText(ctx, text)) {
@@ -451,7 +431,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Note
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 
@@ -500,7 +479,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Contact
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -538,7 +516,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Photos
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 
@@ -574,7 +551,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Review
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ အောက်ပါခလုတ်များထဲမှ တစ်ခုကို ရွေးချယ်ပေးပါ။");
     }
@@ -766,7 +742,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit product
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -795,7 +770,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit category
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ အမျိုးအစားတစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -822,7 +796,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit location
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
       return ctx.reply("⚠️ ကျေးဇူးပြု၍ မြို့နယ်တစ်ခုကို ရွေးချယ်ပါ။");
     }
@@ -849,7 +822,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit price
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -878,7 +850,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit condition
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -907,7 +878,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit note
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -935,7 +905,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit contact
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const text = getTextMessage(ctx);
     if (await handleCommandText(ctx, text)) {
       return;
@@ -963,7 +932,6 @@ export const sellScene = new Scenes.WizardScene<MyContext>(
   // Edit photos
   // ===========================================================
   async (ctx) => {
-    if (await cancelIfCommand(ctx)) return;
     const state = getWizState(ctx);
     state.submissionKey ??= randomUUID();
 
