@@ -1,5 +1,5 @@
 import { Markup, Telegraf } from "telegraf";
-import { logger } from "@/utils/logger";
+import { logger } from "../utils/logger";
 import {
   MyContext,
   MyWizardSession,
